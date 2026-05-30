@@ -464,6 +464,184 @@ ${JSON.stringify(cleanFacts, null, 2)}
   };
 }
 
+  return {
+    reply: webResult.reply,
+    productDescription,
+    keywords,
+    confirmedFeatures,
+    searchStatus: "ok",
+    searchQuery,
+    webModel: webResult.webModel,
+    webTool: webResult.webTool,
+    fallbackReason: webResult.fallbackReason || "",
+    sources
+  };
+}
+
+function buildGenericProductSearchQuery(facts) {
+  const terms = [
+    facts.brandJapanese,
+    facts.brandEnglish,
+    facts.modelNumber,
+    facts.modelSecondName,
+    facts.productName,
+    facts.productSecondName,
+    facts.lineName,
+    facts.itemName,
+    facts.productType,
+    facts.category,
+    facts.productCategory,
+    facts.selectedCategory,
+    facts.selectedSubCategory
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  const uniqueTerms = [...new Set(terms)];
+  return `${uniqueTerms.join(" ")} 商品情報 仕様 素材 ライン 特徴`.replace(/\s{2,}/g, " ").trim();
+}
+
+async function createGenericProductOpenAiAutofill(facts) {
+  const cleanFacts = compactFacts(facts);
+  const searchQuery = buildGenericProductSearchQuery(cleanFacts);
+  const categoryName = String(
+    cleanFacts.category ||
+    cleanFacts.productCategory ||
+    cleanFacts.selectedCategory ||
+    cleanFacts.itemCategory ||
+    "汎用商材"
+  ).trim();
+
+  const prompt = `
+[ROLE]
+あなたは中古ブランド品・中古商材のEC出品文を作成する日本語ライターです。
+
+[WEB検索]
+次の検索クエリを使い、WEB上でブランド名・型番・品名・ライン名に一致する商品情報を確認してください。
+検索クエリ: ${searchQuery}
+
+[対象カテゴリ]
+${categoryName}
+
+[最重要ルール]
+- 出力はJSONのみです。
+- 使ってよい根拠は、PROVIDED_FACTS と WEB検索で確認できた内容だけです。
+- WEB検索で確認できない情報を、一般知識・シリーズ一般論・推測で補わないでください。
+- 型番違い、似た商品、同じブランドの別モデル、後継モデル、現行モデルの情報を混ぜないでください。
+- 状態、保証、店舗名、価格、相場、定価、買取、質預かり、鑑定、真贋、購入を煽る表現は書かないでください。
+- 希少性、資産価値、入手困難、限定、廃番、年代は、WEB検索でその商品に明示されている場合でも商品説明には入れないでください。
+- 商品説明とキーワードにURL、出典名、引用符、見出し、箇条書きは入れないでください。
+- 十分な根拠がない場合は短くして構いません。事実を水増ししないでください。
+- PROVIDED_FACTSに既に入力されている内容は、WEB検索結果より優先してください。
+- PROVIDED_FACTSに入力されている素材・色・ライン名・型番・商品名を、WEB検索結果で上書きしないでください。
+
+[カテゴリ別の厳格ルール]
+- バッグ、財布、小物の場合：ライン名、モデル名、形状、開閉方式、収納特徴、代表的な素材は、型番・品名と一致するWEB検索結果で確認できる場合だけ入れてください。
+- アパレルの場合：アイテム種別、コレクション名、素材表記、デザイン特徴は、WEB検索結果またはPROVIDED_FACTSで確認できる場合だけ入れてください。サイズ感、季節、年代、着用感は書かないでください。
+- ライターの場合：ガスライター、オイルライター、電子ライター、モデル名、着火方式、素材は、WEB検索結果またはPROVIDED_FACTSで確認できる場合だけ入れてください。着火可否、火花確認、メンテナンス歴、修理歴は書かないでください。
+- ジュエリー、貴金属の場合：ブランドコレクション名、モチーフ名、デザイン特徴は確認できる場合だけ入れてください。品位、石種、カラット、重量、天然石、合成石、鑑別結果はPROVIDED_FACTSにある場合だけ扱い、WEB検索結果だけで補わないでください。
+- 汎用商材の場合：ブランド、型番、品名から確認できる用途、シリーズ、仕様、素材、特徴だけを入れてください。確認できない仕様は触れないでください。
+
+[商品説明ルール]
+- 日本語のみ。
+- 2〜4文。
+- 目安は120〜240字。ただし根拠が不足する場合は短くしてよい。
+- 状態説明、ランク、付属品、価格、保証、店舗案内は入れないでください。
+- 「これは○○です」だけで終わらせず、確認できるライン、形状、素材感、デザイン、用途、機能のいずれかを自然に含めてください。
+- ただし確認できない要素は入れないでください。
+
+[仕様キーワードルール]
+- 日本語中心。
+- 半角スペース区切りの1行。
+- 8〜20語を目安。ただし確認できる語が少ない場合は少なくてよい。
+- ブランド名、型番、商品名の完全一致だけの語は避けてください。
+- 未確認の素材、ライン、仕様、機能、石種、品位、サイズを検索キーワードに入れないでください。
+
+[素材出力ルール]
+- material は、PROVIDED_FACTSに素材入力がある場合はその内容を優先してください。
+- PROVIDED_FACTSに素材入力がない場合、WEB検索で型番・品名と一致する素材が明示されている場合だけ material に入れてください。
+- 素材が確認できない場合は material を空文字にしてください。
+
+[ライン名・アイテム名出力ルール]
+- lineName は、WEB検索またはPROVIDED_FACTSで確認できるブランドライン名だけを入れてください。
+- itemName は、WEB検索またはPROVIDED_FACTSで確認できるアイテム種別・型名だけを入れてください。
+- 確認できない場合は空文字にしてください。
+
+[OUTPUT JSON SCHEMA]
+{
+  "productDescription": "商品説明文",
+  "keywords": "半角スペース区切りの仕様検索キーワード",
+  "material": "確認できた素材。確認できない場合は空文字",
+  "lineName": "確認できたライン名。確認できない場合は空文字",
+  "itemName": "確認できたアイテム名。確認できない場合は空文字",
+  "confirmedFacts": {
+    "material": false,
+    "lineName": false,
+    "itemName": false,
+    "modelMatched": false
+  }
+}
+
+[PROVIDED_FACTS]
+${JSON.stringify(cleanFacts, null, 2)}
+`.trim();
+
+  const webResult = await createOpenAiWebSearchReply(prompt);
+  const parsed = parseJsonObject(webResult.reply) || {};
+
+  const confirmedFacts = parsed.confirmedFacts && typeof parsed.confirmedFacts === "object"
+    ? parsed.confirmedFacts
+    : {};
+
+  const sources = Array.isArray(webResult.sources) ? webResult.sources : [];
+  const hasSources = sources.length > 0;
+
+  const cleanOptionalText = (value) => cleanPlainText(value)
+    .replace(/\r?\n/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  let productDescription = cleanPlainText(parsed.productDescription || parsed.description || "");
+  let keywords = cleanKeywords(parsed.keywords || parsed.searchKeywords || "");
+  let material = cleanOptionalText(parsed.material || "");
+  let lineName = cleanOptionalText(parsed.lineName || "");
+  let itemName = cleanOptionalText(parsed.itemName || "");
+
+  if (!hasSources) {
+    material = String(cleanFacts.material || "").trim();
+    lineName = String(cleanFacts.lineName || "").trim();
+    itemName = String(cleanFacts.itemName || "").trim();
+  }
+
+  if (!confirmedFacts.material && !cleanFacts.material) {
+    material = "";
+  }
+
+  if (!confirmedFacts.lineName && !cleanFacts.lineName) {
+    lineName = "";
+  }
+
+  if (!confirmedFacts.itemName && !cleanFacts.itemName) {
+    itemName = "";
+  }
+
+  return {
+    reply: webResult.reply,
+    productDescription,
+    keywords,
+    material,
+    lineName,
+    itemName,
+    confirmedFacts,
+    searchStatus: "ok",
+    searchQuery,
+    webModel: webResult.webModel,
+    webTool: webResult.webTool,
+    fallbackReason: webResult.fallbackReason || "",
+    sources
+  };
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -491,6 +669,12 @@ module.exports = async (req, res) => {
 
     if (mode === "watchWebAutofill") {
       const result = await createWatchOpenAiAutofill(facts || {});
+      res.json(result);
+      return;
+    }
+
+    if (mode === "productOpenAiWebAutofill") {
+      const result = await createGenericProductOpenAiAutofill(facts || {});
       res.json(result);
       return;
     }
