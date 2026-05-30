@@ -1,8 +1,10 @@
 const OpenAI = require("openai");
-const axios = require("axios");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+const OPENAI_WEB_MODEL = process.env.OPENAI_WEB_MODEL || "gpt-5.4-mini";
+const OPENAI_WEB_FALLBACK_MODEL = process.env.OPENAI_WEB_FALLBACK_MODEL || "gpt-4o-mini";
 
 function normalizeEnglishText(value) {
   return String(value || "")
@@ -85,62 +87,84 @@ function buildWatchSearchQuery(facts) {
   return `${uniqueTerms.join(" ")} 腕時計 仕様 デイト 日付表示 ムーブメント 防水`.replace(/\s{2,}/g, " ").trim();
 }
 
-async function searchWithSerpApi(query) {
-  if (!process.env.SERPAPI_API_KEY) {
-    return {
-      status: "skipped_no_serpapi_key",
-      query,
-      results: []
-    };
+function extractResponseText(responseJson) {
+  if (typeof responseJson?.output_text === "string" && responseJson.output_text.trim()) {
+    return responseJson.output_text.trim();
   }
 
-  if (!query) {
-    return {
-      status: "skipped_no_query",
-      query,
-      results: []
-    };
-  }
+  const parts = [];
 
-  try {
-    const response = await axios.get("https://serpapi.com/search", {
-      params: {
-        engine: "google",
-        q: query,
-        api_key: process.env.SERPAPI_API_KEY,
-        hl: "ja",
-        gl: "jp",
-        google_domain: "google.co.jp",
-        num: 10
-      },
-      timeout: 12000
+  if (Array.isArray(responseJson?.output)) {
+    responseJson.output.forEach((item) => {
+      if (Array.isArray(item?.content)) {
+        item.content.forEach((content) => {
+          if (typeof content?.text === "string") {
+            parts.push(content.text);
+          }
+        });
+      }
     });
-
-    const organicResults = Array.isArray(response.data?.organic_results)
-      ? response.data.organic_results
-      : [];
-
-    const results = organicResults.slice(0, 8).map((item, index) => ({
-      position: item.position || index + 1,
-      title: item.title || "",
-      snippet: item.snippet || "",
-      source: item.displayed_link || "",
-      link: item.link || ""
-    }));
-
-    return {
-      status: "ok",
-      query,
-      results
-    };
-  } catch (e) {
-    return {
-      status: "serpapi_error",
-      query,
-      error: e.message,
-      results: []
-    };
   }
+
+  return parts.join("\n").trim();
+}
+
+function extractSourcesFromResponse(responseJson) {
+  const sources = [];
+  const seen = new Set();
+
+  const addSource = (source) => {
+    const url = source?.url || source?.link || "";
+    const title = source?.title || source?.name || "";
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    sources.push({ title, url });
+  };
+
+  if (Array.isArray(responseJson?.output)) {
+    responseJson.output.forEach((item) => {
+      if (Array.isArray(item?.content)) {
+        item.content.forEach((content) => {
+          if (Array.isArray(content?.annotations)) {
+            content.annotations.forEach((annotation) => {
+              if (annotation?.type === "url_citation") {
+                addSource({
+                  title: annotation.title || "",
+                  url: annotation.url || ""
+                });
+              }
+            });
+          }
+        });
+      }
+
+      if (Array.isArray(item?.action?.sources)) {
+        item.action.sources.forEach(addSource);
+      }
+    });
+  }
+
+  return sources.slice(0, 10);
+}
+
+async function postOpenAiResponses(payload) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = data?.error?.message || data?.error || `OpenAI Responses API error: ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data;
 }
 
 async function createChatReply(message, systemContent) {
@@ -155,19 +179,73 @@ async function createChatReply(message, systemContent) {
   return response.choices?.[0]?.message?.content || "";
 }
 
-async function createWatchAutofill(facts) {
+async function createOpenAiWebSearchReply(prompt) {
+  try {
+    const responseJson = await postOpenAiResponses({
+      model: OPENAI_WEB_MODEL,
+      tools: [
+        {
+          type: "web_search",
+          external_web_access: true,
+          user_location: {
+            type: "approximate",
+            country: "JP"
+          }
+        }
+      ],
+      tool_choice: "auto",
+      input: prompt
+    });
+
+    return {
+      reply: extractResponseText(responseJson),
+      sources: extractSourcesFromResponse(responseJson),
+      webModel: OPENAI_WEB_MODEL,
+      webTool: "web_search"
+    };
+  } catch (firstError) {
+    const responseJson = await postOpenAiResponses({
+      model: OPENAI_WEB_FALLBACK_MODEL,
+      tools: [
+        {
+          type: "web_search_preview",
+          search_context_size: "low",
+          user_location: {
+            type: "approximate",
+            country: "JP"
+          }
+        }
+      ],
+      tool_choice: "auto",
+      input: prompt
+    });
+
+    return {
+      reply: extractResponseText(responseJson),
+      sources: extractSourcesFromResponse(responseJson),
+      webModel: OPENAI_WEB_FALLBACK_MODEL,
+      webTool: "web_search_preview",
+      fallbackReason: firstError.message
+    };
+  }
+}
+
+async function createWatchOpenAiAutofill(facts) {
   const cleanFacts = compactFacts(facts);
   const searchQuery = buildWatchSearchQuery(cleanFacts);
-  const searchPayload = await searchWithSerpApi(searchQuery);
 
   const prompt = `
 [ROLE]
 あなたは中古ブランド時計のEC出品文を作成する日本語ライターです。
 
+[WEB検索]
+次の検索クエリを使い、WEB上で型番・品名に一致する時計仕様を確認してください。
+検索クエリ: ${searchQuery}
+
 [最重要ルール]
 - 出力はJSONのみです。
-- 使ってよい根拠は、PROVIDED_FACTS と SEARCH_RESULTS に含まれる内容だけです。
-- SEARCH_RESULTSにない仕様を、一般知識や推測で補わないでください。
+- 使ってよい根拠は、PROVIDED_FACTS と WEB検索で確認できた内容だけです。
+- WEB検索で確認できない仕様を、一般知識や推測で補わないでください。
 - 型番・品名から日付表示、クロノグラフ、GMT、ムーンフェイズ、コーアクシャル、マスタークロノメーター、防水、素材、対象性別、愛称などが確認できる場合のみ入れてください。
 - 確認できない仕様、年式、限定情報、相場、定価、資産価値、希少性は書かないでください。
 - 状態、保証、店舗名、価格、買取、質預かり、鑑定、購入を煽る表現は書かないでください。
@@ -197,29 +275,24 @@ async function createWatchAutofill(facts) {
 
 [PROVIDED_FACTS]
 ${JSON.stringify(cleanFacts, null, 2)}
-
-[SEARCH_RESULTS]
-${JSON.stringify(searchPayload.results, null, 2)}
 `.trim();
 
-  const reply = await createChatReply(
-    prompt,
-    "You generate strictly factual Japanese EC listing copy. Output JSON only."
-  );
+  const webResult = await createOpenAiWebSearchReply(prompt);
+  const parsed = parseJsonObject(webResult.reply) || {};
 
-  const parsed = parseJsonObject(reply) || {};
+  const productDescription = cleanPlainText(parsed.productDescription || parsed.description || "");
+  const keywords = cleanKeywords(parsed.keywords || parsed.searchKeywords || "");
 
   return {
-    reply,
-    productDescription: cleanPlainText(parsed.productDescription || ""),
-    keywords: cleanKeywords(parsed.keywords || ""),
-    searchStatus: searchPayload.status,
-    searchQuery: searchPayload.query,
-    sources: searchPayload.results.map((item) => ({
-      title: item.title,
-      source: item.source,
-      link: item.link
-    }))
+    reply: webResult.reply,
+    productDescription,
+    keywords,
+    searchStatus: "ok",
+    searchQuery,
+    webModel: webResult.webModel,
+    webTool: webResult.webTool,
+    fallbackReason: webResult.fallbackReason || "",
+    sources: webResult.sources
   };
 }
 
@@ -242,8 +315,14 @@ module.exports = async (req, res) => {
     const body = req.body || {};
     const { message, mode, facts, system } = body;
 
+    if (mode === "watchOpenAiWebAutofill") {
+      const result = await createWatchOpenAiAutofill(facts || {});
+      res.json(result);
+      return;
+    }
+
     if (mode === "watchWebAutofill") {
-      const result = await createWatchAutofill(facts || {});
+      const result = await createWatchOpenAiAutofill(facts || {});
       res.json(result);
       return;
     }
