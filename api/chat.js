@@ -484,7 +484,15 @@ function buildGenericProductSearchQuery(facts) {
     .filter(Boolean);
 
   const uniqueTerms = [...new Set(terms)];
-  return `${uniqueTerms.join(" ")} 商品情報 仕様 素材 ライン 特徴`.replace(/\s{2,}/g, " ").trim();
+  const categoryText = String(
+    facts.category ||
+    facts.productCategory ||
+    facts.selectedCategory ||
+    facts.productType ||
+    ""
+  ).trim();
+
+  return `${uniqueTerms.join(" ")} ${categoryText} 型番 仕様 素材 ライン名 モデル名`.replace(/\s{2,}/g, " ").trim();
 }
 
 async function createGenericProductOpenAiAutofill(facts) {
@@ -517,9 +525,12 @@ ${categoryName}
 - 状態、保証、店舗名、価格、相場、定価、買取、質預かり、鑑定、真贋、購入を煽る表現は書かないでください。
 - 希少性、資産価値、入手困難、限定、廃番、年代は、WEB検索でその商品に明示されている場合でも商品説明には入れないでください。
 - 商品説明とキーワードにURL、出典名、引用符、見出し、箇条書きは入れないでください。
+- 商品説明に「確認できませんでした」「一致は確認できましたが」「不明です」「情報がありません」などの内部検証文や否定文を書かないでください。
 - 十分な根拠がない場合は短くして構いません。事実を水増ししないでください。
 - PROVIDED_FACTSに既に入力されている内容は、WEB検索結果より優先してください。
 - PROVIDED_FACTSに入力されている素材・色・ライン名・型番・商品名を、WEB検索結果で上書きしないでください。
+- バッグ・財布の場合、型番と商品名が一致する検索結果からライン名や素材が確認できる場合は、material と lineName に必ず反映してください。
+- ルイヴィトン等で商品名が「アルマ」「アマゾン」「スピーディ」などの型名、ラインが「モノグラム」「ダミエ」「エピ」などで別に存在する場合は、検索結果に基づいて productName と lineName を分けて扱ってください。
 
 [カテゴリ別の厳格ルール]
 - バッグ、財布、小物の場合：ライン名、モデル名、形状、開閉方式、収納特徴、代表的な素材は、型番・品名と一致するWEB検索結果で確認できる場合だけ入れてください。
@@ -587,7 +598,27 @@ ${JSON.stringify(cleanFacts, null, 2)}
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  let productDescription = cleanPlainText(parsed.productDescription || parsed.description || "");
+  const removeVerificationSentences = (value) => {
+    const sentences = String(value || "").match(/[^。！？]*[。！？]?/g) || [];
+    return sentences
+      .filter((sentence) => {
+        const text = sentence.trim();
+        if (!text) return false;
+        return ![
+          "確認できません",
+          "確認できませんでした",
+          "一致は確認",
+          "不明です",
+          "情報がありません",
+          "見つかりません",
+          "判明しません"
+        ].some((ngWord) => text.includes(ngWord));
+      })
+      .join("")
+      .trim();
+  };
+
+  let productDescription = removeVerificationSentences(cleanPlainText(parsed.productDescription || parsed.description || ""));
   let keywords = cleanKeywords(parsed.keywords || parsed.searchKeywords || "");
   let material = cleanOptionalText(parsed.material || "");
   let lineName = cleanOptionalText(parsed.lineName || "");
@@ -599,15 +630,15 @@ ${JSON.stringify(cleanFacts, null, 2)}
     itemName = String(cleanFacts.itemName || "").trim();
   }
 
-  if (!confirmedFacts.material && !cleanFacts.material) {
+  if (!hasSources && !cleanFacts.material) {
     material = "";
   }
 
-  if (!confirmedFacts.lineName && !cleanFacts.lineName) {
+  if (!hasSources && !cleanFacts.lineName) {
     lineName = "";
   }
 
-  if (!confirmedFacts.itemName && !cleanFacts.itemName) {
+  if (!hasSources && !cleanFacts.itemName) {
     itemName = "";
   }
 
