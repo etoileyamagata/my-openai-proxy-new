@@ -114,32 +114,57 @@ function extractSourcesFromResponse(responseJson) {
   const seen = new Set();
 
   const addSource = (source) => {
-    const url = source?.url || source?.link || "";
-    const title = source?.title || source?.name || "";
+    if (!source || typeof source !== "object") return;
+
+    const url = source.url || source.link || source.uri || "";
+    const title = source.title || source.name || source.display_name || source.displayed_link || "";
+
     if (!url || seen.has(url)) return;
+
     seen.add(url);
-    sources.push({ title, url });
+    sources.push({
+      title: String(title || "").trim(),
+      url: String(url || "").trim()
+    });
   };
+
+  const scanAnnotations = (content) => {
+    if (!content || typeof content !== "object") return;
+
+    if (Array.isArray(content.annotations)) {
+      content.annotations.forEach((annotation) => {
+        if (annotation?.type === "url_citation") {
+          addSource({
+            title: annotation.title || "",
+            url: annotation.url || ""
+          });
+        }
+      });
+    }
+  };
+
+  if (Array.isArray(responseJson?.sources)) {
+    responseJson.sources.forEach(addSource);
+  }
 
   if (Array.isArray(responseJson?.output)) {
     responseJson.output.forEach((item) => {
-      if (Array.isArray(item?.content)) {
-        item.content.forEach((content) => {
-          if (Array.isArray(content?.annotations)) {
-            content.annotations.forEach((annotation) => {
-              if (annotation?.type === "url_citation") {
-                addSource({
-                  title: annotation.title || "",
-                  url: annotation.url || ""
-                });
-              }
-            });
-          }
-        });
+      if (Array.isArray(item?.sources)) {
+        item.sources.forEach(addSource);
       }
 
       if (Array.isArray(item?.action?.sources)) {
         item.action.sources.forEach(addSource);
+      }
+
+      if (Array.isArray(item?.content)) {
+        item.content.forEach((content) => {
+          scanAnnotations(content);
+
+          if (Array.isArray(content?.sources)) {
+            content.sources.forEach(addSource);
+          }
+        });
       }
     });
   }
@@ -194,6 +219,7 @@ async function createOpenAiWebSearchReply(prompt) {
         }
       ],
       tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
       input: prompt
     });
 
@@ -217,6 +243,7 @@ async function createOpenAiWebSearchReply(prompt) {
         }
       ],
       tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
       input: prompt
     });
 
