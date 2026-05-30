@@ -464,20 +464,6 @@ ${JSON.stringify(cleanFacts, null, 2)}
   };
 }
 
-  return {
-    reply: webResult.reply,
-    productDescription,
-    keywords,
-    confirmedFeatures,
-    searchStatus: "ok",
-    searchQuery,
-    webModel: webResult.webModel,
-    webTool: webResult.webTool,
-    fallbackReason: webResult.fallbackReason || "",
-    sources
-  };
-}
-
 function buildGenericProductSearchQuery(facts) {
   const terms = [
     facts.brandJapanese,
