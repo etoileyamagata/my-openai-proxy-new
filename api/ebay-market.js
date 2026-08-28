@@ -1,213 +1,89 @@
-const OPENAI_WEB_MODEL = process.env.OPENAI_WEB_MODEL || "gpt-5.4-mini";
-const OPENAI_WEB_FALLBACK_MODEL = process.env.OPENAI_WEB_FALLBACK_MODEL || "gpt-4o-mini";
+const MODEL = process.env.OPENAI_WEB_MODEL || "gpt-5.6";
 
-function clean(value) {
-  return String(value || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+function clean(v) { return String(v || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim(); }
+function parseJson(text) {
+  const raw = String(text || "").replace(/```json\s*/gi, "").replace(/```[a-zA-Z]*\n?/g, "").replace(/```/g, "").trim();
+  const a = raw.indexOf("{"), b = raw.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(raw.slice(a, b + 1)); } catch (_) { return null; }
 }
-
-function parseJsonObject(text) {
-  const raw = String(text || "")
-    .replace(/```json\s*/gi, "")
-    .replace(/```[a-zA-Z]*\n?/g, "")
-    .replace(/```/g, "")
-    .trim();
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  try { return JSON.parse(raw.slice(start, end + 1)); } catch (_) { return null; }
-}
-
-function extractResponseText(responseJson) {
-  if (typeof responseJson?.output_text === "string" && responseJson.output_text.trim()) {
-    return responseJson.output_text.trim();
-  }
+function responseText(data) {
+  if (typeof data?.output_text === "string") return data.output_text.trim();
   const parts = [];
-  if (Array.isArray(responseJson?.output)) {
-    responseJson.output.forEach((item) => {
-      if (Array.isArray(item?.content)) {
-        item.content.forEach((content) => {
-          if (typeof content?.text === "string") parts.push(content.text);
-        });
-      }
-    });
-  }
+  for (const item of data?.output || []) for (const c of item?.content || []) if (typeof c?.text === "string") parts.push(c.text);
   return parts.join("\n").trim();
 }
-
-function extractSources(responseJson) {
-  const sources = [];
-  const seen = new Set();
-  const add = (item) => {
-    if (!item || typeof item !== "object") return;
-    const url = String(item.url || item.link || item.uri || "").trim();
-    const title = String(item.title || item.name || "").trim();
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    sources.push({ title, url });
-  };
-  if (Array.isArray(responseJson?.sources)) responseJson.sources.forEach(add);
-  if (Array.isArray(responseJson?.output)) {
-    responseJson.output.forEach((item) => {
-      if (Array.isArray(item?.sources)) item.sources.forEach(add);
-      if (Array.isArray(item?.action?.sources)) item.action.sources.forEach(add);
-      if (Array.isArray(item?.content)) {
-        item.content.forEach((content) => {
-          if (Array.isArray(content?.sources)) content.sources.forEach(add);
-          if (Array.isArray(content?.annotations)) {
-            content.annotations.forEach((annotation) => {
-              if (annotation?.type === "url_citation") add(annotation);
-            });
-          }
-        });
-      }
-    });
+function sources(data) {
+  const out = [], seen = new Set();
+  const add = x => { const url = String(x?.url || x?.link || x?.uri || "").trim(); if (url && !seen.has(url)) { seen.add(url); out.push(url); } };
+  for (const item of data?.output || []) {
+    for (const x of item?.sources || []) add(x);
+    for (const x of item?.action?.sources || []) add(x);
+    for (const c of item?.content || []) {
+      for (const x of c?.sources || []) add(x);
+      for (const x of c?.annotations || []) if (x?.type === "url_citation") add(x);
+    }
   }
-  return sources.slice(0, 15);
+  return out.slice(0, 20);
 }
-
-function isEbayItemUrl(value) {
+function ebayUrl(value, itemOnly = false) {
   try {
-    const url = new URL(String(value || ""));
-    const host = url.hostname.toLowerCase();
-    return url.protocol === "https:" && (host === "ebay.com" || host.endsWith(".ebay.com")) && /\/itm\//i.test(url.pathname);
+    const u = new URL(String(value || "")), host = u.hostname.toLowerCase();
+    const ebay = host === "ebay.com" || host.endsWith(".ebay.com");
+    return u.protocol === "https:" && ebay && (!itemOnly || /\/itm\//i.test(u.pathname));
   } catch (_) { return false; }
 }
-
-function isEbayUrl(value) {
-  try {
-    const url = new URL(String(value || ""));
-    const host = url.hostname.toLowerCase();
-    return url.protocol === "https:" && (host === "ebay.com" || host.endsWith(".ebay.com"));
-  } catch (_) { return false; }
-}
-
-function uniqueUrls(values, itemOnly) {
+function uniqueUrls(values, itemOnly = false) {
   const seen = new Set();
-  return (Array.isArray(values) ? values : []).map(String).map(v => v.trim()).filter((url) => {
-    const ok = itemOnly ? isEbayItemUrl(url) : isEbayUrl(url);
-    if (!ok || seen.has(url)) return false;
-    seen.add(url);
-    return true;
-  }).slice(0, 5);
+  return (Array.isArray(values) ? values : []).map(String).map(x => x.trim()).filter(x => {
+    if (!ebayUrl(x, itemOnly) || seen.has(x)) return false;
+    seen.add(x); return true;
+  }).slice(0, 8);
 }
-
-function allowedFacts(input) {
-  const facts = input && typeof input === "object" ? input : {};
-  if ("serialNumber" in facts || "serial" in facts || "dateCode" in facts || "manufacturingCode" in facts) {
-    throw new Error("serial/date code must not be sent to market research");
+function factsOnly(input) {
+  const src = input && typeof input === "object" ? input : {};
+  for (const forbidden of ["serialNumber", "serial", "dateCode", "manufacturingCode"]) {
+    if (Object.prototype.hasOwnProperty.call(src, forbidden)) throw new Error("serial/date code is forbidden");
   }
-  const allow = [
-    "schema","kind","categoryId","categoryName","brandEnglish","modelNumber","verifiedProductNameEnglish",
-    "productNameJapanese","lineName","categoryValue","gender","color","dialColor","purity","material",
-    "caseSize","driveType","accessories","aiDescriptionJa","aiKeywordsJa","conditionName","deterministicTitle"
-  ];
-  const result = {};
-  allow.forEach((key) => {
-    const value = facts[key];
-    if (value === null || value === undefined || String(value).trim() === "") return;
-    result[key] = typeof value === "string" ? value.slice(0, 1500) : value;
-  });
-  return result;
+  const allow = ["schema","kind","categoryId","categoryName","brandEnglish","modelNumber","verifiedProductNameEnglish","productNameJapanese","lineName","categoryValue","gender","color","dialColor","purity","material","caseSize","driveType","accessories","aiDescriptionJa","aiKeywordsJa","conditionName","deterministicTitle"];
+  const out = {};
+  for (const key of allow) {
+    const value = src[key];
+    if (value === null || value === undefined || String(value).trim() === "") continue;
+    out[key] = typeof value === "string" ? value.slice(0, 1500) : value;
+  }
+  return out;
 }
-
-async function postResponses(payload) {
+async function searchWeb(prompt) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify(payload)
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: MODEL,
+      tools: [{ type: "web_search", search_context_size: "high", user_location: { type: "approximate", country: "JP" } }],
+      tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
+      input: prompt
+    })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || data?.error || `OpenAI Responses API error: ${response.status}`);
-  return data;
+  return { text: responseText(data), sources: sources(data) };
 }
-
-async function webSearch(prompt) {
-  try {
-    const responseJson = await postResponses({
-      model: OPENAI_WEB_MODEL,
-      tools: [{
-        type: "web_search",
-        external_web_access: true,
-        user_location: { type: "approximate", country: "JP" }
-      }],
-      tool_choice: "auto",
-      include: ["web_search_call.action.sources"],
-      input: prompt
-    });
-    return { text: extractResponseText(responseJson), sources: extractSources(responseJson), webModel: OPENAI_WEB_MODEL };
-  } catch (firstError) {
-    const responseJson = await postResponses({
-      model: OPENAI_WEB_FALLBACK_MODEL,
-      tools: [{
-        type: "web_search_preview",
-        search_context_size: "medium",
-        user_location: { type: "approximate", country: "JP" }
-      }],
-      tool_choice: "auto",
-      include: ["web_search_call.action.sources"],
-      input: prompt
-    });
-    return {
-      text: extractResponseText(responseJson),
-      sources: extractSources(responseJson),
-      webModel: OPENAI_WEB_FALLBACK_MODEL,
-      fallbackReason: firstError.message
-    };
-  }
-}
-
-function validateOutput(parsed, webResult) {
-  const pricing = parsed?.pricing && typeof parsed.pricing === "object" ? parsed.pricing : {};
-  const quickUsd = Math.ceil(Number(pricing.quickUsd));
-  const targetUsd = Math.ceil(Number(pricing.targetUsd));
-  const highUsd = Math.ceil(Number(pricing.highUsd));
-  const confidence = clean(parsed?.confidence).toLowerCase();
-  const reasonJa = clean(parsed?.reasonJa);
+function validate(parsed, webSources) {
+  const pricing = parsed?.pricing || {};
+  const quickUsd = Math.ceil(Number(pricing.quickUsd)), targetUsd = Math.ceil(Number(pricing.targetUsd)), highUsd = Math.ceil(Number(pricing.highUsd));
+  const confidence = clean(parsed?.confidence).toLowerCase(), reasonJa = clean(parsed?.reasonJa || parsed?.reason);
   const soldUrls = uniqueUrls(parsed?.soldUrls, true).slice(0, 3);
-  const evidenceUrls = uniqueUrls([
-    ...(Array.isArray(parsed?.evidenceUrls) ? parsed.evidenceUrls : []),
-    ...(webResult.sources || []).map(item => item.url)
-  ], false);
-  const comparables = (Array.isArray(parsed?.comparables) ? parsed.comparables : [])
-    .map(item => ({
-      title: clean(item?.title),
-      url: String(item?.url || "").trim(),
-      soldPriceUsd: Math.ceil(Number(item?.soldPriceUsd)),
-      similarityReason: clean(item?.similarityReason)
-    }))
-    .filter(item => isEbayItemUrl(item.url) && Number.isFinite(item.soldPriceUsd) && item.soldPriceUsd > 0)
-    .slice(0, 5);
-
-  const priceOk = [quickUsd, targetUsd, highUsd].every(v => Number.isFinite(v) && v > 0) && quickUsd <= targetUsd && targetUsd <= highUsd;
-  const evidenceOk = soldUrls.length >= 2;
-  if (!priceOk || !evidenceOk || !["high", "medium"].includes(confidence) || !reasonJa) {
-    return {
-      ok: false,
-      needsManualSoldInput: true,
-      reason: !evidenceOk
-        ? "実際のeBay Sold/Completed商品URLを2件以上確認できなかったため、自動価格を採用しません。"
-        : "市場調査結果を安全条件で検証できなかったため、自動価格を採用しません。",
-      evidenceUrls,
-      comparables,
-      webModel: webResult.webModel,
-      researchedAt: new Date().toISOString()
-    };
+  const evidenceUrls = uniqueUrls([...(parsed?.evidenceUrls || []), ...(webSources || [])], false);
+  const comparables = (Array.isArray(parsed?.comparables) ? parsed.comparables : []).map(x => ({
+    title: clean(x?.title), url: String(x?.url || "").trim(), soldPriceUsd: Math.ceil(Number(x?.soldPriceUsd)), similarityReason: clean(x?.similarityReason)
+  })).filter(x => ebayUrl(x.url, true) && Number.isFinite(x.soldPriceUsd) && x.soldPriceUsd > 0).slice(0, 5);
+  const priceOk = [quickUsd,targetUsd,highUsd].every(x => Number.isFinite(x) && x > 0) && quickUsd <= targetUsd && targetUsd <= highUsd;
+  if (!priceOk || soldUrls.length < 2 || !["high","medium"].includes(confidence) || !reasonJa) {
+    return { ok:false, needsManualSoldInput:true, reason:"実際のeBay Sold/Completed商品URLを2件以上含む安全な相場結果を確認できませんでした。", evidenceUrls, comparables, webModel:MODEL, researchedAt:new Date().toISOString() };
   }
-
-  return {
-    ok: true,
-    pricing: { quickUsd, targetUsd, highUsd },
-    confidence,
-    reasonJa,
-    soldUrls,
-    evidenceUrls,
-    comparables,
-    webModel: webResult.webModel,
-    researchedAt: new Date().toISOString()
-  };
+  return { ok:true, pricing:{quickUsd,targetUsd,highUsd}, confidence, reasonJa, soldUrls, evidenceUrls, comparables, webModel:MODEL, researchedAt:new Date().toISOString() };
 }
 
 module.exports = async function handler(req, res) {
@@ -215,85 +91,18 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Cache-Control", "no-store");
-
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "POST required" });
-  if (!process.env.OPENAI_API_KEY) return res.status(500).json({ ok: false, error: "OPENAI_API_KEY is not configured" });
-
+  if (req.method !== "POST") return res.status(405).json({ ok:false, error:"POST required" });
+  if (!process.env.OPENAI_API_KEY) return res.status(500).json({ ok:false, error:"OPENAI_API_KEY is not configured" });
   try {
-    const facts = allowedFacts(req.body?.facts || {});
-    if (!facts.categoryId || !facts.brandEnglish) {
-      return res.status(400).json({ ok: false, error: "categoryId and brandEnglish are required" });
-    }
-
-    const prompt = `
-[ROLE]
-あなたは日本の中古ブランド品販売会社向けのeBay.com市場価格調査担当です。
-
-[GOAL]
-下記の確定済み商品情報を使い、eBay.comのSold/Completed実績をWEB検索して、現実的な3価格をUSDで作成してください。
-QUICK = 比較的早く売る価格
-TARGET = しばらく待って現実的に売る中心価格
-HIGH = 時間をかけて狙う上限寄り価格
-
-[絶対条件]
-- 出力はJSONのみ。
-- serial number / date code / manufacturing codeは入力にも出力にも使わない。
-- PROVIDED_FACTSの既存ChatGPT説明・キーワードは検索語補助にのみ使い、事実の根拠にはしない。
-- カテゴリ、製造国、Condition、Item Specificsを推測しない。
-- eBay Sold/Completedと確認できる実商品を最低2件必要とする。
-- soldUrlsには実際のeBay商品URL（https://www.ebay.com/itm/... 等）だけを入れる。
-- 検索結果一覧URL、Google/Bing URL、Terapeak以外の価格サイトURLをsoldUrlsに入れない。
-- 出品中価格だけしか確認できない場合は ok=false にする。
-- 同型番を最優先し、なければ同モデル・近い仕様へ広げるが、違いをsimilarityReasonに明記する。
-- QUICK <= TARGET <= HIGH を必ず守る。
-- 異常値、部品取り、ジャンク、箱のみ、付属品のみ、明らかな別型番は除外する。
-- 情報が足りない場合は無理に価格を作らず ok=false にする。
-
-[OUTPUT JSON]
-{
-  "ok": true,
-  "pricing": {"quickUsd": 0, "targetUsd": 0, "highUsd": 0},
-  "confidence": "high|medium",
-  "reasonJa": "短い日本語理由",
-  "soldUrls": ["https://www.ebay.com/itm/...", "https://www.ebay.com/itm/..."],
-  "evidenceUrls": [],
-  "comparables": [
-    {"title":"", "url":"https://www.ebay.com/itm/...", "soldPriceUsd":0, "similarityReason":""}
-  ]
-}
-
-失敗時:
-{
-  "ok": false,
-  "reasonJa": "Sold/Completed実績を2件以上確認できない等の理由",
-  "soldUrls": [],
-  "evidenceUrls": []
-}
-
-[PROVIDED_FACTS]
-${JSON.stringify(facts, null, 2)}
-`.trim();
-
-    const webResult = await webSearch(prompt);
-    const parsed = parseJsonObject(webResult.text);
-    if (!parsed) {
-      return res.status(200).json({
-        ok: false,
-        needsManualSoldInput: true,
-        reason: "OpenAI市場調査レスポンスをJSONとして検証できませんでした。",
-        evidenceUrls: uniqueUrls((webResult.sources || []).map(item => item.url), false),
-        webModel: webResult.webModel,
-        researchedAt: new Date().toISOString()
-      });
-    }
-
-    return res.status(200).json(validateOutput(parsed, webResult));
+    const facts = factsOnly(req.body?.facts || {});
+    if (!facts.categoryId || !facts.brandEnglish) return res.status(400).json({ ok:false, error:"categoryId and brandEnglish are required" });
+    const prompt = `あなたは日本の中古ブランド品販売会社向けeBay.com市場価格調査担当です。\n\n確定済み情報:\n${JSON.stringify(facts, null, 2)}\n\nWEB検索でeBay.comのSold/Completed実績を調査してください。serial/date codeは使わず、既存ChatGPT説明・キーワードは検索補助にのみ使用してください。カテゴリ、製造国、Condition、Item Specificsは推測しません。同型番を最優先し、なければ同モデル・近い仕様へ広げます。部品取り、ジャンク、箱のみ、別型番などの異常比較対象は除外してください。\n\n実際のeBay Sold/Completed商品URLを最低2件確認できる場合だけok=true。出品中価格しか確認できない場合や根拠不足ならok=false。\n\n価格はUSD整数で QUICK=比較的早く売る価格、TARGET=しばらく待って現実的に売る中心価格、HIGH=時間をかけて狙う上限寄り価格。QUICK <= TARGET <= HIGH。\n\nJSONのみ返してください:\n{"ok":true,"pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},"confidence":"high|medium","reasonJa":"短い日本語理由","soldUrls":["https://www.ebay.com/itm/...","https://www.ebay.com/itm/..."],"evidenceUrls":[],"comparables":[{"title":"","url":"https://www.ebay.com/itm/...","soldPriceUsd":0,"similarityReason":""}]}\n失敗時:{"ok":false,"reasonJa":"理由","soldUrls":[],"evidenceUrls":[]}`;
+    const web = await searchWeb(prompt);
+    const parsed = parseJson(web.text);
+    if (!parsed || parsed.ok === false) return res.status(200).json({ ok:false, needsManualSoldInput:true, reason:clean(parsed?.reasonJa || "市場調査結果を安全に確定できませんでした。"), evidenceUrls:uniqueUrls(web.sources), webModel:MODEL, researchedAt:new Date().toISOString() });
+    return res.status(200).json(validate(parsed, web.sources));
   } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      needsManualSoldInput: true,
-      error: error instanceof Error ? error.message : String(error)
-    });
+    return res.status(500).json({ ok:false, needsManualSoldInput:true, error:error instanceof Error ? error.message : String(error) });
   }
 };
