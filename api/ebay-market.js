@@ -1,7 +1,10 @@
 const MODEL = "gpt-5.6-luna";
 
-function clean(v) {
-  return String(v || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+function clean(value) {
+  return String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parseJson(text) {
@@ -10,11 +13,11 @@ function parseJson(text) {
     .replace(/```[a-zA-Z]*\n?/g, "")
     .replace(/```/g, "")
     .trim();
-  const a = raw.indexOf("{");
-  const b = raw.lastIndexOf("}");
-  if (a < 0 || b <= a) return null;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
   try {
-    return JSON.parse(raw.slice(a, b + 1));
+    return JSON.parse(raw.slice(start, end + 1));
   } catch (_) {
     return null;
   }
@@ -24,8 +27,8 @@ function responseText(data) {
   if (typeof data?.output_text === "string") return data.output_text.trim();
   const parts = [];
   for (const item of data?.output || []) {
-    for (const c of item?.content || []) {
-      if (typeof c?.text === "string") parts.push(c.text);
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") parts.push(content.text);
     }
   }
   return parts.join("\n").trim();
@@ -34,32 +37,34 @@ function responseText(data) {
 function sources(data) {
   const out = [];
   const seen = new Set();
-  const add = x => {
-    const url = String(x?.url || x?.link || x?.uri || "").trim();
+  const add = source => {
+    const url = String(source?.url || source?.link || source?.uri || "").trim();
     if (url && !seen.has(url)) {
       seen.add(url);
       out.push(url);
     }
   };
+
   for (const item of data?.output || []) {
-    for (const x of item?.sources || []) add(x);
-    for (const x of item?.action?.sources || []) add(x);
-    for (const c of item?.content || []) {
-      for (const x of c?.sources || []) add(x);
-      for (const x of c?.annotations || []) {
-        if (x?.type === "url_citation") add(x);
+    for (const source of item?.sources || []) add(source);
+    for (const source of item?.action?.sources || []) add(source);
+    for (const content of item?.content || []) {
+      for (const source of content?.sources || []) add(source);
+      for (const annotation of content?.annotations || []) {
+        if (annotation?.type === "url_citation") add(annotation);
       }
     }
   }
-  return out.slice(0, 40);
+
+  return out.slice(0, 50);
 }
 
 function ebayUrl(value, itemOnly = false) {
   try {
-    const u = new URL(String(value || ""));
-    const host = u.hostname.toLowerCase();
-    const ebay = host === "ebay.com" || host.endsWith(".ebay.com");
-    return u.protocol === "https:" && ebay && (!itemOnly || /\/itm\//i.test(u.pathname));
+    const url = new URL(String(value || ""));
+    const host = url.hostname.toLowerCase();
+    const isEbay = host === "ebay.com" || host.endsWith(".ebay.com");
+    return url.protocol === "https:" && isEbay && (!itemOnly || /\/itm\//i.test(url.pathname));
   } catch (_) {
     return false;
   }
@@ -68,8 +73,8 @@ function ebayUrl(value, itemOnly = false) {
 function ebayItemId(value) {
   if (!ebayUrl(value, true)) return "";
   try {
-    const u = new URL(String(value));
-    const parts = u.pathname.split("/").filter(Boolean);
+    const url = new URL(String(value));
+    const parts = url.pathname.split("/").filter(Boolean);
     const itmIndex = parts.findIndex(part => part.toLowerCase() === "itm");
     if (itmIndex < 0) return "";
     for (let i = parts.length - 1; i > itmIndex; i -= 1) {
@@ -86,15 +91,15 @@ function uniqueUrls(values, itemOnly = false) {
   const seen = new Set();
   return (Array.isArray(values) ? values : [])
     .map(String)
-    .map(x => x.trim())
-    .filter(x => {
-      if (!ebayUrl(x, itemOnly)) return false;
-      const key = itemOnly ? ebayItemId(x) : x;
+    .map(value => value.trim())
+    .filter(value => {
+      if (!ebayUrl(value, itemOnly)) return false;
+      const key = itemOnly ? ebayItemId(value) : value;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, 12);
+    .slice(0, 16);
 }
 
 function verifiedItemUrls(values, webSources) {
@@ -120,40 +125,40 @@ function normalizeModelNumber(value) {
 }
 
 function modelNumberMatchesValue(actual, expected) {
-  const a = normalizeModelNumber(actual);
-  const e = normalizeModelNumber(expected);
-  if (!e) return true;
-  return a === e;
+  const actualValue = normalizeModelNumber(actual);
+  const expectedValue = normalizeModelNumber(expected);
+  if (!expectedValue) return true;
+  return actualValue === expectedValue;
 }
 
 function caseSizeMatchesValue(actual, expected) {
-  const a = Number(String(actual ?? "").match(/(\d+(?:\.\d+)?)/)?.[1]);
-  const e = Number(String(expected ?? "").match(/(\d+(?:\.\d+)?)/)?.[1]);
-  if (!Number.isFinite(e)) return true;
-  if (!Number.isFinite(a)) return false;
-  return Math.abs(a - e) <= 0.2;
+  const actualValue = Number(String(actual ?? "").match(/(\d+(?:\.\d+)?)/)?.[1]);
+  const expectedValue = Number(String(expected ?? "").match(/(\d+(?:\.\d+)?)/)?.[1]);
+  if (!Number.isFinite(expectedValue)) return true;
+  if (!Number.isFinite(actualValue)) return false;
+  return Math.abs(actualValue - expectedValue) <= 0.2;
 }
 
 const DIAL_GROUPS = [
-  { key: "champagne", target: /(シャンパン|しゃんぱん|champagne)/i, value: /(シャンパン|しゃんぱん|champagne)/i },
-  { key: "black", target: /(ブラック|黒|black)/i, value: /(ブラック|黒|black)/i },
-  { key: "blue", target: /(ブルー|青|blue)/i, value: /(ブルー|青|blue)/i },
-  { key: "silver", target: /(シルバー|銀|silver)/i, value: /(シルバー|銀|silver)/i },
-  { key: "white", target: /(ホワイト|白|white)/i, value: /(ホワイト|白|white)/i },
-  { key: "gray", target: /(グレー|灰|gray|grey)/i, value: /(グレー|灰|gray|grey)/i },
-  { key: "green", target: /(グリーン|緑|green)/i, value: /(グリーン|緑|green)/i },
-  { key: "gold", target: /(ゴールド|金色|gold)/i, value: /(ゴールド|金色|gold)/i },
-  { key: "pink", target: /(ピンク|pink)/i, value: /(ピンク|pink)/i },
-  { key: "red", target: /(レッド|赤|red)/i, value: /(レッド|赤|red)/i },
-  { key: "brown", target: /(ブラウン|茶|brown)/i, value: /(ブラウン|茶|brown)/i }
+  { target: /(シャンパン|しゃんぱん|champagne)/i, value: /(シャンパン|しゃんぱん|champagne)/i },
+  { target: /(ブラック|黒|black)/i, value: /(ブラック|黒|black)/i },
+  { target: /(ブルー|青|blue)/i, value: /(ブルー|青|blue)/i },
+  { target: /(シルバー|銀|silver)/i, value: /(シルバー|銀|silver)/i },
+  { target: /(ホワイト|白|white)/i, value: /(ホワイト|白|white)/i },
+  { target: /(グレー|灰|gray|grey)/i, value: /(グレー|灰|gray|grey)/i },
+  { target: /(グリーン|緑|green)/i, value: /(グリーン|緑|green)/i },
+  { target: /(ゴールド|金色|gold)/i, value: /(ゴールド|金色|gold)/i },
+  { target: /(ピンク|pink)/i, value: /(ピンク|pink)/i },
+  { target: /(レッド|赤|red)/i, value: /(レッド|赤|red)/i },
+  { target: /(ブラウン|茶|brown)/i, value: /(ブラウン|茶|brown)/i }
 ];
 
 const SPECIAL_DIALS = [
-  { key: "diamond", target: /(ダイヤ|diamond|10p|8p)/i, value: /(ダイヤ|diamond|10p|8p)/i },
-  { key: "pyramid", target: /(ピラミッド|pyramid)/i, value: /(ピラミッド|pyramid)/i },
-  { key: "tapestry", target: /(タペストリー|tapestry)/i, value: /(タペストリー|tapestry)/i },
-  { key: "mop", target: /(シェル|マザーオブパール|mother of pearl|\bmop\b)/i, value: /(シェル|マザーオブパール|mother of pearl|\bmop\b)/i },
-  { key: "custom", target: /(カスタム|custom|社外|aftermarket)/i, value: /(カスタム|custom|社外|aftermarket)/i }
+  { target: /(ダイヤ|diamond|10p|8p)/i, value: /(ダイヤ|diamond|10p|8p)/i },
+  { target: /(ピラミッド|pyramid)/i, value: /(ピラミッド|pyramid)/i },
+  { target: /(タペストリー|tapestry)/i, value: /(タペストリー|tapestry)/i },
+  { target: /(シェル|マザーオブパール|mother of pearl|\bmop\b)/i, value: /(シェル|マザーオブパール|mother of pearl|\bmop\b)/i },
+  { target: /(カスタム|custom|社外|aftermarket)/i, value: /(カスタム|custom|社外|aftermarket)/i }
 ];
 
 function dialValueMatches(actualDial, facts) {
@@ -194,43 +199,6 @@ function normalizedConditionGroup(value) {
   return "other";
 }
 
-function verifiedComparableMatchesFacts(item, facts) {
-  if (!item || typeof item !== "object") return false;
-
-  const url = String(item.url || "").trim();
-  const title = clean(item.title);
-  const soldPriceUsd = Number(item.soldPriceUsd);
-
-  if (!ebayUrl(url, true) || !title || obviousBadComparable(title)) return false;
-  if (!Number.isFinite(soldPriceUsd) || soldPriceUsd <= 0) return false;
-  if (item.soldStatusConfirmed !== true) return false;
-  if (item.soldPriceVisible !== true) return false;
-  if (item.soldPriceIsExact !== true) return false;
-  if (item.bestOfferOrHiddenPrice === true) return false;
-  if (item.currentOrRelistedPrice === true) return false;
-
-  if (facts?.modelNumber && !modelNumberMatchesValue(item.modelNumber, facts.modelNumber)) return false;
-
-  if (String(facts?.kind || "").toLowerCase() === "watch") {
-    if (facts?.caseSize && !caseSizeMatchesValue(item.caseSizeMm, facts.caseSize)) return false;
-    if ((facts?.dialColor || facts?.color) && !dialValueMatches(item.dialColor, facts)) return false;
-
-    const specialDial = normalizeText(item.specialDial || "");
-    if (specialDial && specialDial !== "none" && specialDial !== "なし" && !dialValueMatches(`${item.dialColor || ""} ${specialDial}`, facts)) {
-      return false;
-    }
-
-    if (targetIsBodyOnly(facts?.accessories) && (item.hasBox === true || item.hasPapers === true)) return false;
-  }
-
-  const targetCondition = normalizedConditionGroup(facts?.conditionName);
-  const actualCondition = normalizedConditionGroup(item.condition);
-  if (targetCondition && actualCondition && actualCondition !== "other" && targetCondition !== actualCondition) return false;
-  if (actualCondition === "parts") return false;
-
-  return true;
-}
-
 function factsOnly(input) {
   const src = input && typeof input === "object" ? input : {};
   for (const forbidden of ["serialNumber", "serial", "dateCode", "manufacturingCode"]) {
@@ -238,6 +206,7 @@ function factsOnly(input) {
       throw new Error("serial/date code is forbidden");
     }
   }
+
   const allow = [
     "schema",
     "kind",
@@ -262,6 +231,7 @@ function factsOnly(input) {
     "conditionName",
     "deterministicTitle"
   ];
+
   const out = {};
   for (const key of allow) {
     const value = src[key];
@@ -311,15 +281,16 @@ function buildDiscoveryPrompt(facts) {
 ${JSON.stringify(facts, null, 2)}
 
 WEB検索でeBay.comのSold/Completed商品候補を探してください。
-この段階では価格算定をしません。実際に検索で確認したeBay item URLだけを候補として最大8件返してください。
+この段階では価格算定をしません。実際に検索で確認したeBay item URLだけを候補として最大10件返してください。
 serial/date codeは使用禁止です。部品取り、ジャンク、箱のみ、別型番は除外してください。
 
 時計の場合:
 - modelNumberがある場合は同じ型番だけ。
 - caseSizeがある場合は同じケースサイズだけ。
-- dialColorまたはcolorがある場合は同じ文字盤色・文字盤仕様を最優先し、明示的に異なる文字盤は候補に入れない。
+- dialColorまたはcolorがある場合は同じ文字盤色・文字盤仕様を優先し、明示的に異なる文字盤は候補に入れない。
 - 対象にないDiamond、Pyramid、Tapestry、MOP/Mother of Pearl、Custom/Aftermarket等の特殊文字盤は候補に入れない。
-- accessoriesが本体のみの場合、Box/Papers/Full Set等が明示されたものは候補に入れない。
+- Box/Papers/Full Set付きは除外しない。対象が本体のみなら、後段で上限寄りの補助比較として扱う。
+- Best Offer acceptedのSoldも候補に含めてよい。実際の受諾価格が非公開の場合は後段で上限参考として扱う。
 
 JSONのみ返してください:
 {"candidateUrls":["https://www.ebay.com/itm/..."],"reasonJa":"短い理由"}
@@ -328,12 +299,12 @@ JSONのみ返してください:
 
 function extractDiscoveryCandidates(parsed, webSources) {
   const requested = uniqueUrls(parsed?.candidateUrls, true);
-  return verifiedItemUrls(requested, webSources).slice(0, 8);
+  return verifiedItemUrls(requested, webSources).slice(0, 10);
 }
 
 function buildVerificationPrompt(facts, candidateUrls) {
   return `あなたはeBay.com中古ブランド品の成約根拠を検証する担当です。
-以下の候補URLを1件ずつ実際に確認し、条件に合うものだけをverifiedComparablesへ返してください。
+以下の候補URLを1件ずつ実際に確認し、対象商品と条件が合うSold/CompletedだけをverifiedComparablesへ返してください。
 
 対象商品の確定情報:
 ${JSON.stringify(facts, null, 2)}
@@ -341,43 +312,47 @@ ${JSON.stringify(facts, null, 2)}
 候補URL:
 ${JSON.stringify(candidateUrls, null, 2)}
 
-最重要ルール:
-- 必ず各候補のeBay商品ページの内容を確認する。
+商品一致ルール:
+- 必ず各候補のeBay商品ページを確認する。
 - Sold/Completedであることが確認できないものは除外。
-- 実際の成約価格がUSDで明示され、0より大きい場合だけ採用。
-- US $0.00は必ず除外。
-- 取消線の元価格、現在の再出品価格、類似商品の価格を成約価格として使わない。
-- Best Offer accepted等で実際の受諾価格が非公開・不明なものは除外。
-- soldPriceUsdはページ上で確認できた実際の成約価格だけ。
 - URL、型番、ケースサイズ、文字盤、付属品、Conditionを推測しない。
-- 時計はmodelNumberが一致必須。caseSizeがある場合は一致必須。
-- dialColorまたはcolorがある場合は同じ文字盤色・文字盤仕様だけ採用。明示的に異なる文字盤は除外。
+- 時計はmodelNumber一致必須。caseSizeがある場合は一致必須。
+- dialColorまたはcolorがある場合は同じ文字盤色・文字盤仕様だけ採用し、明示的に異なる文字盤は除外。
 - 対象にないDiamond、Pyramid、Tapestry、MOP/Mother of Pearl、Custom/Aftermarket等の特殊文字盤は除外。
-- accessoriesが本体のみの場合、BoxまたはPapers付きは除外。
 - 部品取り、ジャンク、修理前提は除外。
-- 条件を満たす実績が2件未満ならok=false。近い仕様へ広げない。
-- pricingはverifiedComparablesだけを根拠に作る。
+- Box/Papers付きは除外しない。対象が本体のみの場合はaccessoryUpperBound=trueとして上限寄りの補助比較にする。
+
+価格ルール:
+- US $0.00は価格根拠として使わない。
+- exactSoldPriceUsdには、ページ上で実際の成約価格が明示され、Best Offer等で価格非公開ではない場合だけ実売価格を入れる。該当しなければ0。
+- Best Offer acceptedで実際の受諾価格が非公開の場合はbestOfferAccepted=trueとし、ページ上の元の表示価格・出品価格が確認できる場合だけdisplayedUpperBoundUsdへ入れる。これは実売価格ではなく上限参考値。
+- 取消線の価格、現在の再出品価格、類似商品の価格はexactSoldPriceUsdに絶対に入れない。
+- currentOrRelistedPrice=trueのものは価格根拠に使わない。
+- 対象が本体のみでBox/Papers付きの場合、その価格はactual sale priceが明示されていても上限寄りの補助比較として扱う。
+- 条件一致のSold/Completedが2件未満ならok=false。近い仕様へ広げない。
+- 2件以上の条件一致Soldがあり、そのうち少なくとも1件に比較可能な価格情報（exactSoldPriceUsd > 0 または displayedUpperBoundUsd > 0）がある場合だけpricingを作成してよい。
+- pricingはexactSoldPriceUsdを最優先する。Best OfferのdisplayedUpperBoundUsdと、対象が本体のみのときのBox/Papers付き成約価格は上限参考にのみ使う。
+- QUICK/TARGET/HIGHは保守的に算定し、上限参考値を実売価格として扱わない。
 
 各verifiedComparablesに以下を必ず返してください:
-url, title, soldPriceUsd, soldStatusConfirmed, soldPriceVisible, soldPriceIsExact,
-bestOfferOrHiddenPrice, currentOrRelistedPrice, modelNumber, caseSizeMm, dialColor,
-specialDial, hasBox, hasPapers, condition, verificationReasonJa
+url, title, soldStatusConfirmed, exactSoldPriceUsd, displayedUpperBoundUsd,
+bestOfferAccepted, currentOrRelistedPrice, modelNumber, caseSizeMm, dialColor,
+specialDial, hasBox, hasPapers, accessoryUpperBound, condition, verificationReasonJa
 
 JSONのみ返してください:
 {
-  "ok": true,
-  "pricing": {"quickUsd":0,"targetUsd":0,"highUsd":0},
+  "ok":true,
+  "pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},
   "confidence":"high|medium",
   "reasonJa":"短い日本語理由",
   "verifiedComparables":[
     {
       "url":"https://www.ebay.com/itm/...",
       "title":"",
-      "soldPriceUsd":0,
       "soldStatusConfirmed":true,
-      "soldPriceVisible":true,
-      "soldPriceIsExact":true,
-      "bestOfferOrHiddenPrice":false,
+      "exactSoldPriceUsd":0,
+      "displayedUpperBoundUsd":0,
+      "bestOfferAccepted":false,
       "currentOrRelistedPrice":false,
       "modelNumber":"",
       "caseSizeMm":0,
@@ -385,13 +360,77 @@ JSONのみ返してください:
       "specialDial":"none",
       "hasBox":false,
       "hasPapers":false,
+      "accessoryUpperBound":false,
       "condition":"",
       "verificationReasonJa":""
     }
   ]
 }
 失敗時:
-{"ok":false,"reasonJa":"条件を満たす実際の成約事例が2件未満","verifiedComparables":[]}`;
+{"ok":false,"reasonJa":"条件を満たす成約事例または価格根拠が不足","verifiedComparables":[]}`;
+}
+
+function verifiedComparableMatchesFacts(item, facts) {
+  if (!item || typeof item !== "object") return false;
+
+  const url = String(item.url || "").trim();
+  const title = clean(item.title);
+  if (!ebayUrl(url, true) || !title || obviousBadComparable(title)) return false;
+  if (item.soldStatusConfirmed !== true) return false;
+  if (item.currentOrRelistedPrice === true) return false;
+
+  if (facts?.modelNumber && !modelNumberMatchesValue(item.modelNumber, facts.modelNumber)) return false;
+
+  if (String(facts?.kind || "").toLowerCase() === "watch") {
+    if (facts?.caseSize && !caseSizeMatchesValue(item.caseSizeMm, facts.caseSize)) return false;
+    if ((facts?.dialColor || facts?.color) && !dialValueMatches(item.dialColor, facts)) return false;
+
+    const specialDial = normalizeText(item.specialDial || "");
+    if (
+      specialDial
+      && specialDial !== "none"
+      && specialDial !== "なし"
+      && !dialValueMatches(`${item.dialColor || ""} ${specialDial}`, facts)
+    ) {
+      return false;
+    }
+  }
+
+  const targetCondition = normalizedConditionGroup(facts?.conditionName);
+  const actualCondition = normalizedConditionGroup(item.condition);
+  if (actualCondition === "parts") return false;
+  if (targetCondition && actualCondition && actualCondition !== "other" && targetCondition !== actualCondition) {
+    return false;
+  }
+
+  return true;
+}
+
+function priceEvidence(item, facts) {
+  const exactSoldPriceUsd = Number(item.exactSoldPriceUsd);
+  const displayedUpperBoundUsd = Number(item.displayedUpperBoundUsd);
+  const bodyOnly = targetIsBodyOnly(facts?.accessories);
+  const accessoryUpperBound = bodyOnly && (item.hasBox === true || item.hasPapers === true || item.accessoryUpperBound === true);
+  const bestOfferUpperBound = item.bestOfferAccepted === true;
+
+  let exactPrice = 0;
+  let upperBound = 0;
+
+  if (Number.isFinite(exactSoldPriceUsd) && exactSoldPriceUsd > 0) {
+    if (accessoryUpperBound) {
+      upperBound = exactSoldPriceUsd;
+    } else if (!bestOfferUpperBound) {
+      exactPrice = exactSoldPriceUsd;
+    }
+  }
+
+  if (Number.isFinite(displayedUpperBoundUsd) && displayedUpperBoundUsd > 0) {
+    upperBound = upperBound > 0
+      ? Math.min(upperBound, displayedUpperBoundUsd)
+      : displayedUpperBoundUsd;
+  }
+
+  return { exactPrice, upperBound, accessoryUpperBound, bestOfferUpperBound };
 }
 
 function validateVerifiedResult(parsed, verificationSources, discoveryCandidates, facts) {
@@ -414,11 +453,10 @@ function validateVerifiedResult(parsed, verificationSources, discoveryCandidates
     .map(item => ({
       url: String(item?.url || "").trim(),
       title: clean(item?.title),
-      soldPriceUsd: Math.ceil(Number(item?.soldPriceUsd)),
       soldStatusConfirmed: item?.soldStatusConfirmed === true,
-      soldPriceVisible: item?.soldPriceVisible === true,
-      soldPriceIsExact: item?.soldPriceIsExact === true,
-      bestOfferOrHiddenPrice: item?.bestOfferOrHiddenPrice === true,
+      exactSoldPriceUsd: Math.ceil(Number(item?.exactSoldPriceUsd)),
+      displayedUpperBoundUsd: Math.ceil(Number(item?.displayedUpperBoundUsd)),
+      bestOfferAccepted: item?.bestOfferAccepted === true,
       currentOrRelistedPrice: item?.currentOrRelistedPrice === true,
       modelNumber: clean(item?.modelNumber),
       caseSizeMm: item?.caseSizeMm,
@@ -426,6 +464,7 @@ function validateVerifiedResult(parsed, verificationSources, discoveryCandidates
       specialDial: clean(item?.specialDial),
       hasBox: item?.hasBox === true,
       hasPapers: item?.hasPapers === true,
+      accessoryUpperBound: item?.accessoryUpperBound === true,
       condition: clean(item?.condition),
       verificationReasonJa: clean(item?.verificationReasonJa)
     }))
@@ -437,24 +476,37 @@ function validateVerifiedResult(parsed, verificationSources, discoveryCandidates
       seenIds.add(id);
       return true;
     })
-    .slice(0, 5);
+    .map(item => ({ ...item, ...priceEvidence(item, facts) }))
+    .slice(0, 6);
 
-  const soldUrls = comparables.map(item => item.url).slice(0, 3);
-  const priceOk = [quickUsd, targetUsd, highUsd].every(x => Number.isFinite(x) && x > 0)
+  const pricedComparables = comparables.filter(item => item.exactPrice > 0 || item.upperBound > 0);
+  const exactPrices = comparables.map(item => item.exactPrice).filter(value => value > 0);
+  const upperBounds = comparables.map(item => item.upperBound).filter(value => value > 0);
+
+  const priceOk = [quickUsd, targetUsd, highUsd].every(value => Number.isFinite(value) && value > 0)
     && quickUsd <= targetUsd
     && targetUsd <= highUsd;
 
+  const maxEvidence = Math.max(0, ...exactPrices, ...upperBounds);
+  const minExact = exactPrices.length > 0 ? Math.min(...exactPrices) : 0;
+  const pricingWithinEvidence = priceOk
+    && maxEvidence > 0
+    && highUsd <= Math.ceil(maxEvidence * 1.02)
+    && (minExact <= 0 || quickUsd >= Math.floor(minExact * 0.70));
+
   if (
     parsed?.ok !== true
-    || !priceOk
     || comparables.length < 2
+    || pricedComparables.length < 1
+    || exactPrices.length < 1
+    || !pricingWithinEvidence
     || !["high", "medium"].includes(confidence)
     || !reasonJa
   ) {
     return {
       ok: false,
       needsManualSoldInput: true,
-      reason: "実売価格が明示された条件一致のeBay Sold/Completed実績を2件以上、二段階で確認できなかったため、AI価格は採用しません。",
+      reason: "条件一致のeBay Sold/Completed実績は確認できましたが、自動価格に使える実売価格根拠が不足したためAI価格は採用しません。",
       evidenceUrls: uniqueUrls(verificationSources, false),
       comparables,
       webModel: MODEL,
@@ -467,7 +519,7 @@ function validateVerifiedResult(parsed, verificationSources, discoveryCandidates
     pricing: { quickUsd, targetUsd, highUsd },
     confidence,
     reasonJa,
-    soldUrls,
+    soldUrls: comparables.map(item => item.url).slice(0, 3),
     evidenceUrls: uniqueUrls(verificationSources, false),
     comparables,
     webModel: MODEL,
