@@ -2,9 +2,9 @@ const OpenAI = require("openai");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
-const OPENAI_WEB_MODEL = process.env.OPENAI_WEB_MODEL || "gpt-5.4-mini";
-const OPENAI_WEB_FALLBACK_MODEL = process.env.OPENAI_WEB_FALLBACK_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const OPENAI_WEB_MODEL = process.env.OPENAI_WEB_MODEL || "gpt-5.6-luna";
+const OPENAI_WEB_FALLBACK_MODEL = process.env.OPENAI_WEB_FALLBACK_MODEL || "gpt-5.6-luna";
 
 function normalizeEnglishText(value) {
   return String(value || "")
@@ -27,8 +27,15 @@ function cleanPlainText(value) {
     .replace(/```[a-zA-Z]*\n?/g, "")
     .replace(/```/g, "")
     .replace(/^\s*(商品説明|販売用要約文|要約文|OUTPUT)\s*[:：]\s*/gmi, "")
+    .replace(/\[[^\]]*\]\(https?:\/\/[^)\s]+\)/gi, "")
+    .replace(/https?:\/\/[^\s)\]}>\"']+/gi, "")
+    .replace(/\\?\((?:source|sources?|出典)\s*[:：][^)]*\\?\)/gi, "")
+    .replace(/（(?:source|sources?|出典)\s*[:：][^）]*）/gi, "")
+    .replace(/\\?\(\s*\\?\)/g, "")
     .replace(/[\u200B\u00A0\u3000]/g, "")
     .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+([、。！？,.])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
