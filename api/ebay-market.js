@@ -110,6 +110,98 @@ function verifiedItemUrls(values, webSources) {
   });
 }
 
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function modelNumberMatches(title, modelNumber) {
+  const model = normalizeText(modelNumber);
+  if (!model) return true;
+  return normalizeText(title).includes(model);
+}
+
+function caseSizeMatches(title, caseSize) {
+  const match = String(caseSize || "").match(/(\d+(?:\.\d+)?)/);
+  if (!match) return true;
+  const size = match[1].replace(".", "\\.");
+  return new RegExp(`(^|[^0-9])${size}\\s*mm([^0-9]|$)`, "i").test(String(title || ""));
+}
+
+const DIAL_GROUPS = [
+  { key: "champagne", target: /(シャンパン|しゃんぱん|champagne)/i, listing: /\bchampagne\b/i },
+  { key: "black", target: /(ブラック|黒|black)/i, listing: /\bblack\b/i },
+  { key: "blue", target: /(ブルー|青|blue)/i, listing: /\bblue\b/i },
+  { key: "silver", target: /(シルバー|銀|silver)/i, listing: /\bsilver\b/i },
+  { key: "white", target: /(ホワイト|白|white)/i, listing: /\bwhite\b/i },
+  { key: "gray", target: /(グレー|灰|gray|grey)/i, listing: /\b(?:gray|grey)\b/i },
+  { key: "green", target: /(グリーン|緑|green)/i, listing: /\bgreen\b/i },
+  { key: "gold", target: /(ゴールド|金色|gold)/i, listing: /\bgold\b/i },
+  { key: "pink", target: /(ピンク|pink)/i, listing: /\bpink\b/i },
+  { key: "red", target: /(レッド|赤|red)/i, listing: /\bred\b/i },
+  { key: "brown", target: /(ブラウン|茶|brown)/i, listing: /\bbrown\b/i }
+];
+
+const SPECIAL_DIALS = [
+  { key: "diamond", target: /(ダイヤ|diamond|10p|8p)/i, listing: /\bdiamond\b/i },
+  { key: "pyramid", target: /(ピラミッド|pyramid)/i, listing: /\bpyramid\b/i },
+  { key: "tapestry", target: /(タペストリー|tapestry)/i, listing: /\btapestry\b/i },
+  { key: "mop", target: /(シェル|マザーオブパール|mother of pearl|\bmop\b)/i, listing: /(mother of pearl|\bmop\b)/i },
+  { key: "custom", target: /(カスタム|custom|社外|aftermarket)/i, listing: /\b(?:custom|aftermarket)\b/i }
+];
+
+function dialMatches(title, facts) {
+  const target = normalizeText(`${facts?.dialColor || ""} ${facts?.color || ""}`);
+  if (!target) return true;
+
+  const targetGroups = DIAL_GROUPS.filter(group => group.target.test(target));
+  if (targetGroups.length > 0) {
+    const listingMatchesTarget = targetGroups.some(group => group.listing.test(String(title || "")));
+    if (!listingMatchesTarget) return false;
+  }
+
+  for (const special of SPECIAL_DIALS) {
+    const targetHasSpecial = special.target.test(target);
+    const listingHasSpecial = special.listing.test(String(title || ""));
+    if (listingHasSpecial && !targetHasSpecial) return false;
+  }
+
+  return true;
+}
+
+function targetIsBodyOnly(accessories) {
+  return /(本体のみ|時計のみ|watch only|head only)/i.test(String(accessories || ""));
+}
+
+function listingHasIncludedAccessories(title) {
+  const text = normalizeText(title);
+  const explicitlyNoAccessories = /(no\s+box\s*\/\s*papers?|no\s+box\s+(?:and|&)\s+papers?|without\s+box|without\s+papers?|watch only|head only)/i.test(text);
+  if (explicitlyNoAccessories) return false;
+  return /(full\s+set|box\s*(?:&|and|\/)\s*papers?|with\s+box|with\s+papers?|box\s+paper|box\s+papers|\bcertificate\b|\bwarranty\s+card\b)/i.test(text);
+}
+
+function obviousBadComparable(title) {
+  return /(for\s+parts|parts\s+only|junk|repair|project\s+watch|empty\s+box|box\s+only)/i.test(String(title || ""));
+}
+
+function comparableMatchesFacts(comparable, facts) {
+  const title = clean(comparable?.title);
+  if (!title || obviousBadComparable(title)) return false;
+
+  if (String(facts?.kind || "").toLowerCase() === "watch") {
+    if (facts?.modelNumber && !modelNumberMatches(title, facts.modelNumber)) return false;
+    if (facts?.caseSize && !caseSizeMatches(title, facts.caseSize)) return false;
+    if ((facts?.dialColor || facts?.color) && !dialMatches(title, facts)) return false;
+    if (targetIsBodyOnly(facts?.accessories) && listingHasIncludedAccessories(title)) return false;
+  }
+
+  return true;
+}
+
 function factsOnly(input) {
   const src = input && typeof input === "object" ? input : {};
   for (const forbidden of ["serialNumber", "serial", "dateCode", "manufacturingCode"]) {
@@ -178,7 +270,7 @@ async function searchWeb(prompt) {
   return { text: responseText(data), sources: sources(data) };
 }
 
-function validate(parsed, webSources) {
+function validate(parsed, webSources, facts) {
   const pricing = parsed?.pricing || {};
   const quickUsd = Math.ceil(Number(pricing.quickUsd));
   const targetUsd = Math.ceil(Number(pricing.targetUsd));
@@ -186,8 +278,8 @@ function validate(parsed, webSources) {
   const confidence = clean(parsed?.confidence).toLowerCase();
   const reasonJa = clean(parsed?.reasonJa || parsed?.reason);
   const evidenceUrls = uniqueUrls(webSources, false);
-  const soldUrls = verifiedItemUrls(parsed?.soldUrls, webSources).slice(0, 3);
-  const verifiedIds = new Set(soldUrls.map(ebayItemId).filter(Boolean));
+  const verifiedSourceUrls = verifiedItemUrls(parsed?.soldUrls, webSources);
+  const verifiedIds = new Set(verifiedSourceUrls.map(ebayItemId).filter(Boolean));
   const comparables = (Array.isArray(parsed?.comparables) ? parsed.comparables : [])
     .map(x => ({
       title: clean(x?.title),
@@ -197,9 +289,14 @@ function validate(parsed, webSources) {
     }))
     .filter(x => {
       const id = ebayItemId(x.url);
-      return id && verifiedIds.has(id) && Number.isFinite(x.soldPriceUsd) && x.soldPriceUsd > 0;
+      return id
+        && verifiedIds.has(id)
+        && Number.isFinite(x.soldPriceUsd)
+        && x.soldPriceUsd > 0
+        && comparableMatchesFacts(x, facts);
     })
     .slice(0, 5);
+  const soldUrls = comparables.map(x => x.url).slice(0, 3);
   const priceOk = [quickUsd, targetUsd, highUsd].every(x => Number.isFinite(x) && x > 0)
     && quickUsd <= targetUsd
     && targetUsd <= highUsd;
@@ -208,7 +305,7 @@ function validate(parsed, webSources) {
     return {
       ok: false,
       needsManualSoldInput: true,
-      reason: "OpenAI Web Searchの取得元と照合できるeBay Sold/Completed商品URLを2件以上確認できなかったため、AI価格は採用しません。",
+      reason: "型番・ケースサイズ・文字盤・付属品条件まで照合できるeBay Sold/Completed実績を2件以上確認できなかったため、AI価格は採用しません。",
       evidenceUrls,
       comparables,
       webModel: MODEL,
@@ -247,7 +344,7 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: "categoryId and brandEnglish are required" });
     }
 
-    const prompt = `あなたは日本の中古ブランド品販売会社向けeBay.com市場価格調査担当です。\n\n確定済み情報:\n${JSON.stringify(facts, null, 2)}\n\nWEB検索でeBay.comのSold/Completed実績を調査してください。serial/date codeは使わず、既存ChatGPT説明・キーワードは検索補助にのみ使用してください。カテゴリ、製造国、Condition、Item Specificsは推測しません。同型番を最優先し、なければ同モデル・近い仕様へ広げます。部品取り、ジャンク、箱のみ、別型番などの異常比較対象は除外してください。\n\n実際のeBay Sold/Completed商品URLを最低2件確認できる場合だけok=true。soldUrlsとcomparablesのURLは、今回のWEB検索で実際に取得・確認したeBay item URLだけを返してください。検索で確認していないURLを推測・生成してはいけません。出品中価格しか確認できない場合や根拠不足ならok=false。\n\n価格はUSD整数で QUICK=比較的早く売る価格、TARGET=しばらく待って現実的に売る中心価格、HIGH=時間をかけて狙う上限寄り価格。QUICK <= TARGET <= HIGH。\n\nJSONのみ返してください:\n{"ok":true,"pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},"confidence":"high|medium","reasonJa":"短い日本語理由","soldUrls":["https://www.ebay.com/itm/...","https://www.ebay.com/itm/..."],"evidenceUrls":[],"comparables":[{"title":"","url":"https://www.ebay.com/itm/...","soldPriceUsd":0,"similarityReason":""}]}\n失敗時:{"ok":false,"reasonJa":"理由","soldUrls":[],"evidenceUrls":[]}`;
+    const prompt = `あなたは日本の中古ブランド品販売会社向けeBay.com市場価格調査担当です。\n\n確定済み情報:\n${JSON.stringify(facts, null, 2)}\n\nWEB検索でeBay.comのSold/Completed実績を調査してください。serial/date codeは使わず、既存ChatGPT説明・キーワードは検索補助にのみ使用してください。カテゴリ、製造国、Condition、Item Specificsは推測しません。部品取り、ジャンク、箱のみ、別型番などの異常比較対象は除外してください。\n\n時計でmodelNumberが確定している場合は同じ型番だけを比較対象にしてください。別型番や近似型番へ広げて自動価格を作ってはいけません。caseSizeがある場合は同じケースサイズだけを採用してください。dialColorまたはcolorがある場合は文字盤色・文字盤仕様が一致するものだけを採用し、明示的に異なる文字盤は除外してください。対象商品にないDiamond、Pyramid、Tapestry、MOP/Mother of Pearl、Custom/Aftermarket等の特殊文字盤は除外してください。accessoriesが本体のみの場合、Box、Papers、Full Set、Certificate、Warranty Card等が付属する成約は自動価格の比較対象から除外してください。Conditionも対象商品と大きく異なるものは除外してください。これらの条件を満たすSold/Completed実績が2件未満なら、近い仕様へ広げずok=falseにしてください。\n\n実際のeBay Sold/Completed商品URLを最低2件確認できる場合だけok=true。soldUrlsとcomparablesのURLは、今回のWEB検索で実際に取得・確認したeBay item URLだけを返してください。検索で確認していないURLを推測・生成してはいけません。出品中価格しか確認できない場合や根拠不足ならok=false。\n\n価格はUSD整数で QUICK=比較的早く売る価格、TARGET=しばらく待って現実的に売る中心価格、HIGH=時間をかけて狙う上限寄り価格。QUICK <= TARGET <= HIGH。\n\nJSONのみ返してください:\n{"ok":true,"pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},"confidence":"high|medium","reasonJa":"短い日本語理由","soldUrls":["https://www.ebay.com/itm/...","https://www.ebay.com/itm/..."],"evidenceUrls":[],"comparables":[{"title":"","url":"https://www.ebay.com/itm/...","soldPriceUsd":0,"similarityReason":""}]}\n失敗時:{"ok":false,"reasonJa":"理由","soldUrls":[],"evidenceUrls":[]}`;
 
     const web = await searchWeb(prompt);
     const parsed = parseJson(web.text);
@@ -262,7 +359,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    return res.status(200).json(validate(parsed, web.sources));
+    return res.status(200).json(validate(parsed, web.sources, facts));
   } catch (error) {
     return res.status(500).json({
       ok: false,
