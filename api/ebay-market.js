@@ -225,7 +225,7 @@ function validate(parsed, verificationSources, candidates, facts) {
     const actualCondition = conditionGroup(item.condition);
     if (actualCondition === "parts" || (targetCondition && actualCondition && actualCondition !== "other" && targetCondition !== actualCondition)) return false;
     seen.add(item.id); return true;
-  }).slice(0, 8);
+  }).slice(0, 10);
 
   const confirmed = comparables.filter(x => x.dialMatchStatus === "confirmed");
   const unconfirmed = comparables.filter(x => x.dialMatchStatus === "unconfirmed");
@@ -249,9 +249,9 @@ function validate(parsed, verificationSources, candidates, facts) {
     if (!reason) reason = confirmed.length < 2
       ? `文字盤まで確認できたSold事例は${confirmed.length}件です。${unconfirmed.length ? `文字盤表記未確認の候補${unconfirmed.length}件も参考情報として保持しています。` : ""}`
       : "条件一致のSold実績は確認できましたが、自動価格に使える実売価格根拠が不足したためAI価格は採用しません。";
-    return { ok: false, needsManualSoldInput: true, reason, reasonJa: reason, soldUrls: confirmedUrls.slice(0, 3), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
+    return { ok: false, needsManualSoldInput: true, reason, reasonJa: reason, soldUrls: confirmedUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
   }
-  return { ok: true, pricing: { quickUsd, targetUsd, highUsd }, confidence, reasonJa, soldUrls: confirmedUrls.slice(0, 3), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
+  return { ok: true, pricing: { quickUsd, targetUsd, highUsd }, confidence, reasonJa, soldUrls: confirmedUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
 }
 
 module.exports = async function handler(req, res) {
