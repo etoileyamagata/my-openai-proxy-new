@@ -106,6 +106,14 @@ function uniqUrls(values, itemOnly = false) {
   return out.slice(0, 20);
 }
 
+function rankedDiscoveryCandidates(candidatePool, discoverySources) {
+  const urls = uniqUrls(candidatePool, true);
+  const sourceIds = new Set(uniqUrls(discoverySources, true).map(ebayItemId));
+  const sourceBacked = urls.filter(u => sourceIds.has(ebayItemId(u)));
+  const outputOnly = urls.filter(u => !sourceIds.has(ebayItemId(u)));
+  return [...sourceBacked, ...outputOnly].slice(0, 12);
+}
+
 function factsOnly(input) {
   const src = input && typeof input === "object" ? input : {};
   for (const k of ["serialNumber", "serial", "dateCode", "manufacturingCode"]) {
@@ -303,8 +311,7 @@ module.exports = async function handler(req, res) {
     const dp1 = parseJson(d1.text);
     let discoverySources = Array.isArray(d1.sources) ? d1.sources : [];
     let candidatePool = Array.isArray(dp1?.candidateUrls) ? dp1.candidateUrls : [];
-    let sourceIds = new Set(uniqUrls(discoverySources, true).map(ebayItemId));
-    let candidates = uniqUrls(candidatePool, true).filter(u => sourceIds.has(ebayItemId(u))).slice(0, 12);
+    let candidates = rankedDiscoveryCandidates(candidatePool, discoverySources);
     let discoveryReason = clean(dp1?.reasonJa);
 
     if (candidates.length < 4) {
@@ -315,8 +322,7 @@ module.exports = async function handler(req, res) {
         ...candidatePool,
         ...(Array.isArray(dp2?.candidateUrls) ? dp2.candidateUrls : [])
       ];
-      sourceIds = new Set(uniqUrls(discoverySources, true).map(ebayItemId));
-      candidates = uniqUrls(candidatePool, true).filter(u => sourceIds.has(ebayItemId(u))).slice(0, 12);
+      candidates = rankedDiscoveryCandidates(candidatePool, discoverySources);
       discoveryReason = clean(dp2?.reasonJa || discoveryReason);
     }
 
