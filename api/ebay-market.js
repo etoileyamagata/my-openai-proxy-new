@@ -183,6 +183,7 @@ function verifyPrompt(facts, urls) {
 }
 
 function priceEvidence(item, facts) {
+  if (item.currentOrRelistedPrice === true) return { exactPrice: 0, upperBound: 0 };
   const exact = Number(item.exactSoldPriceUsd);
   const upper = Number(item.displayedUpperBoundUsd);
   const accessoryUpper = isBodyOnly(facts?.accessories) && (item.hasBox || item.hasPapers || item.accessoryUpperBound);
@@ -197,7 +198,6 @@ function priceEvidence(item, facts) {
 
 function validate(parsed, verificationSources, candidates, facts) {
   const candidateIds = new Set(candidates.map(ebayItemId));
-  const sourceIds = new Set(uniqUrls(verificationSources, true).map(ebayItemId));
   const seen = new Set();
   const targetCondition = conditionGroup(facts?.conditionName);
 
@@ -218,8 +218,8 @@ function validate(parsed, verificationSources, candidates, facts) {
     item.similarityReason = item.verificationReasonJa;
     return item;
   }).filter(item => {
-    if (!item.id || seen.has(item.id) || !candidateIds.has(item.id) || !sourceIds.has(item.id)) return false;
-    if (!item.title || item.soldStatusConfirmed !== true || item.currentOrRelistedPrice || /(for\s+parts|parts\s+only|junk|repair|project\s+watch|empty\s+box|box\s+only)/i.test(item.title)) return false;
+    if (!item.id || seen.has(item.id) || !candidateIds.has(item.id)) return false;
+    if (!item.title || item.soldStatusConfirmed !== true || /(for\s+parts|parts\s+only|junk|repair|project\s+watch|empty\s+box|box\s+only)/i.test(item.title)) return false;
     if (facts?.modelNumber && !modelMatches(item.modelNumber, facts.modelNumber)) return false;
     if (item.caseMatchStatus === "mismatch" || item.dialMatchStatus === "mismatch") return false;
     const actualCondition = conditionGroup(item.condition);
@@ -229,9 +229,10 @@ function validate(parsed, verificationSources, candidates, facts) {
 
   const confirmed = comparables.filter(x => x.dialMatchStatus === "confirmed");
   const unconfirmed = comparables.filter(x => x.dialMatchStatus === "unconfirmed");
-  const exactPrices = confirmed.map(x => x.exactPrice).filter(x => x > 0);
-  const upperBounds = confirmed.map(x => x.upperBound).filter(x => x > 0);
-  const priced = confirmed.filter(x => x.exactPrice > 0 || x.upperBound > 0);
+  const pricingConfirmed = confirmed.filter(x => x.currentOrRelistedPrice !== true);
+  const exactPrices = pricingConfirmed.map(x => x.exactPrice).filter(x => x > 0);
+  const upperBounds = pricingConfirmed.map(x => x.upperBound).filter(x => x > 0);
+  const priced = pricingConfirmed.filter(x => x.exactPrice > 0 || x.upperBound > 0);
   const p = parsed?.pricing || {};
   const quickUsd = Math.ceil(Number(p.quickUsd)), targetUsd = Math.ceil(Number(p.targetUsd)), highUsd = Math.ceil(Number(p.highUsd));
   const priceOrder = [quickUsd, targetUsd, highUsd].every(x => Number.isFinite(x) && x > 0) && quickUsd <= targetUsd && targetUsd <= highUsd;
@@ -241,17 +242,24 @@ function validate(parsed, verificationSources, candidates, facts) {
   const confidence = clean(parsed?.confidence).toLowerCase();
   const reasonJa = clean(parsed?.reasonJa || parsed?.reason);
   const confirmedUrls = confirmed.map(x => x.url);
-  const evidenceUrls = uniqUrls([...confirmedUrls, ...unconfirmed.map(x => x.url), ...verificationSources]);
-  const ok = parsed?.ok === true && confirmed.length >= 2 && priced.length >= 1 && exactPrices.length >= 1 && withinEvidence && ["high", "medium"].includes(confidence) && !!reasonJa;
+  const reviewUrls = comparables.map(x => x.url);
+  const evidenceUrls = uniqUrls([...reviewUrls, ...verificationSources]);
+  const ok = parsed?.ok === true && pricingConfirmed.length >= 2 && priced.length >= 1 && exactPrices.length >= 1 && withinEvidence && ["high", "medium"].includes(confidence) && !!reasonJa;
 
   if (!ok) {
-    let reason = reasonJa;
-    if (!reason) reason = confirmed.length < 2
-      ? `文字盤まで確認できたSold事例は${confirmed.length}件です。${unconfirmed.length ? `文字盤表記未確認の候補${unconfirmed.length}件も参考情報として保持しています。` : ""}`
-      : "条件一致のSold実績は確認できましたが、自動価格に使える実売価格根拠が不足したためAI価格は採用しません。";
-    return { ok: false, needsManualSoldInput: true, reason, reasonJa: reason, soldUrls: confirmedUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
+    let reason;
+    if (pricingConfirmed.length < 2) {
+      reason = `文字盤まで確認でき、価格判定対象に残せたSold事例は${pricingConfirmed.length}件です。${confirmed.length > pricingConfirmed.length ? `再出品・現在価格が混在するSold候補${confirmed.length - pricingConfirmed.length}件は確認用リンクとして保持しています。` : ""}`;
+    } else if (exactPrices.length < 1) {
+      reason = `条件一致のSold事例は${confirmed.length}件確認できましたが、本体のみ条件で確定実売価格として安全に使える事例が不足しています。付属品付き、Best Offer価格非公開、換算表示、再出品価格などは参考情報として確認できます。`;
+    } else if (!withinEvidence) {
+      reason = "条件一致のSold実績は確認できましたが、AIが算定したQUICK / TARGET / HIGHが確認済み価格根拠の安全範囲を満たさないため自動価格は採用しません。";
+    } else {
+      reason = reasonJa || "条件一致のSold実績は確認できましたが、自動価格に使える実売価格根拠が不足したためAI価格は採用しません。";
+    }
+    return { ok: false, needsManualSoldInput: true, reason, reasonJa: reason, soldUrls: reviewUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, pricingComparableCount: pricingConfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
   }
-  return { ok: true, pricing: { quickUsd, targetUsd, highUsd }, confidence, reasonJa, soldUrls: confirmedUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
+  return { ok: true, pricing: { quickUsd, targetUsd, highUsd }, confidence, reasonJa, soldUrls: reviewUrls.slice(0, 10), evidenceUrls, comparables, confirmedComparableCount: confirmed.length, unconfirmedComparableCount: unconfirmed.length, pricingComparableCount: pricingConfirmed.length, webModel: MODEL, researchedAt: new Date().toISOString() };
 }
 
 module.exports = async function handler(req, res) {
