@@ -146,6 +146,23 @@ function dialStatus(actualDial, specialDial, facts) {
   return actual.includes(target) || target.includes(actual) ? "confirmed" : "mismatch";
 }
 
+function dialSearchHint(facts) {
+  const target = norm(`${facts?.dialColor || ""} ${facts?.color || ""}`);
+  if (!target) return "文字盤色指定なし";
+  if (/(シャンパン|champagne)/i.test(target)) return "Champagne / Gold / Gold Tone / Yellow Gold";
+  if (/(ブラック|黒|black)/i.test(target)) return "Black / Black Dial / Black Face";
+  if (/(ブルー|青|blue)/i.test(target)) return "Blue / Blue Dial / Blue Face";
+  if (/(シルバー|銀|silver)/i.test(target)) return "Silver / Silver Dial / Silver Face";
+  if (/(ホワイト|白|white)/i.test(target)) return "White / White Dial / White Face";
+  if (/(グレー|灰|gray|grey)/i.test(target)) return "Gray / Grey / Gray Dial / Grey Dial";
+  if (/(グリーン|緑|green)/i.test(target)) return "Green / Green Dial / Green Face";
+  if (/(ゴールド|金色|gold)/i.test(target)) return "Gold / Gold Dial / Gold Tone / Champagne";
+  if (/(ピンク|pink)/i.test(target)) return "Pink / Pink Dial";
+  if (/(レッド|赤|red)/i.test(target)) return "Red / Red Dial";
+  if (/(ブラウン|茶|brown)/i.test(target)) return "Brown / Brown Dial / Chocolate";
+  return clean(facts?.dialColor || facts?.color || "");
+}
+
 function conditionGroup(v) {
   const s = norm(v);
   if (!s) return "";
@@ -175,11 +192,18 @@ async function searchWeb(prompt) {
 }
 
 function discoveryPrompt(facts) {
-  return `あなたはeBay.comの中古ブランド品Sold/Completed事例の探索担当です。\n確定情報:\n${JSON.stringify(facts, null, 2)}\n\n実際にWEB検索で確認したeBay item URLだけを最大12件返してください。価格算定はまだしません。serial/date code、部品取り、ジャンク、箱のみ、別型番は除外。\n時計は同一modelNumberを必須とし、caseSizeは一致を優先しますが同一型番で未記載なら候補に残し、明示的な別サイズだけ除外してください。文字盤はタイトルだけでなくItem specificsも考慮し、明示的な別色は除外、未記載は候補に残してください。\nシャンパン文字盤はChampagneだけでなく、Dial Color欄のGold / Gold Tone / Yellow Goldも同系統候補として探索してください。ケース・ベゼル・ブレスがGoldというだけで文字盤色を推測してはいけません。\nDiamond/Pyramid/Tapestry/MOP/Computer/Jubilee-pattern/Linen/Houndstooth/Custom/Aftermarket等、対象にない特殊文字盤は除外。Box/Papers付きとBest Offer acceptedは候補に残してよい。\n1種類の検索語で終わらず、modelNumber中心、文字盤名あり/なし、シャンパンならChampagne/Gold系など複数検索を試してください。\nJSONのみ:{"candidateUrls":["https://www.ebay.com/itm/..."],"reasonJa":"短い理由"}`;
+  const dialHint = dialSearchHint(facts);
+  return `あなたはeBay.comの中古ブランド品Sold/Completed事例の探索担当です。\n確定情報:\n${JSON.stringify(facts, null, 2)}\n\n実際にWEB検索で確認したeBay item URLだけを最大12件返してください。価格算定はまだしません。serial/date code、部品取り、ジャンク、箱のみ、別型番は除外。\n時計は同一modelNumberを必須とし、caseSizeは一致を優先しますが同一型番で未記載なら候補に残し、明示的な別サイズだけ除外してください。\n対象文字盤色は「${clean(facts?.dialColor || facts?.color || "未指定")}」です。検索語候補は「${dialHint}」。対象色そのものを除外してはいけません。タイトルだけでなくItem specificsのDial Colorと説明も考慮し、明示的に対象と異なる文字盤色だけ除外、文字盤色未記載は候補に残してください。\nシャンパンの場合だけはChampagneに加えてDial Color欄のGold / Gold Tone / Yellow Goldも同系統候補として扱えます。ケース・ベゼル・ブレスがGoldというだけで文字盤色を推測してはいけません。\nDiamond/Pyramid/Tapestry/MOP/Computer/Jubilee-pattern/Linen/Houndstooth/Custom/Aftermarket等、対象にない特殊文字盤は除外。Box/Papers付きとBest Offer acceptedは候補に残してよい。\n1種類の検索語で終わらず、brand+modelNumber+文字盤語、modelNumber+文字盤語+36mm、modelNumber中心で色を付けない検索など複数パターンを試し、Item specificsまで見てください。可能なら6件以上、最大12件の候補を探してください。\nJSONのみ:{"candidateUrls":["https://www.ebay.com/itm/..."],"reasonJa":"短い理由"}`;
+}
+
+function discoveryRetryPrompt(facts, existingUrls) {
+  const dialHint = dialSearchHint(facts);
+  return `あなたはeBay.com中古ブランド品Sold/Completed事例の追加探索担当です。\n対象:\n${JSON.stringify(facts, null, 2)}\n\n1回目の探索では候補が少なかったため、別の検索語・別の検索結果から追加候補を探してください。既出URLは再提出しないでください:\n${JSON.stringify(existingUrls, null, 2)}\n\n時計は同一modelNumber必須。対象文字盤色は「${clean(facts?.dialColor || facts?.color || "未指定")}」、検索語候補は「${dialHint}」。対象色そのものを除外してはいけません。\nbrand+modelNumber+各文字盤語、modelNumber+各文字盤語、modelNumber+36mm+各文字盤語、modelNumberのみで検索してItem specificsのDial Colorを確認する方法をそれぞれ試してください。タイトルに色がなくてもItem specificsで対象色なら候補に含めてください。文字盤色未記載も候補に残し、明示的な別色のみ除外してください。\n部品取り、ジャンク、箱のみ、別型番、対象外のDiamond/Pyramid/Tapestry/MOP/Computer/Jubilee-pattern/Linen/Houndstooth/Custom/Aftermarketは除外。実際にWEB検索で確認したeBay item URLだけを追加で最大12件返し、URLを推測・生成しないでください。\nJSONのみ:{"candidateUrls":["https://www.ebay.com/itm/..."],"reasonJa":"短い理由"}`;
 }
 
 function verifyPrompt(facts, urls) {
-  return `あなたはeBay.com中古ブランド品のSold/Completed根拠検証担当です。\n対象:\n${JSON.stringify(facts, null, 2)}\n候補URL:\n${JSON.stringify(urls, null, 2)}\n\n各URLを実際に確認してください。Sold/Completed未確認、別型番、明示的な別サイズ、部品/ジャンクは除外。時計はmodelNumber一致必須。caseSize未記載はcaseSizeMm=0で残してよい。\n文字盤はタイトルだけでなくItem specificsのDial Colorと説明も確認。対象がシャンパンなら、Dial Colorとして明示されたChampagne / Gold / Gold Tone / Yellow Goldは同系統として扱ってよい。ただしケース・ベゼル・ブレスのGoldから推測しない。文字盤色が未記載で、別色や特殊文字盤とも明示されない場合はdialColor=""、dialEvidenceSource="not_stated"として残し、シャンパンと断定しない。Black/Silver/Blue等の明示的別色は除外。対象にないDiamond/Pyramid/Tapestry/MOP/Computer/Jubilee-pattern/Linen/Houndstooth/Custom/Aftermarketは除外。\nBox/Papers付きは対象が本体のみならaccessoryUpperBound=true。Best Offerで受諾価格非公開ならexactSoldPriceUsd=0、表示価格が確認できる場合だけdisplayedUpperBoundUsdへ。US $0.00、取消線、現在の再出品価格、類似商品価格は実売価格にしない。\n文字盤未記載の事例は調査結果として返すが自動価格算定には使わない。文字盤確認済みSoldが2件未満ならok=false。ok=falseでも確認できた事例をverifiedComparablesから捨てない。2件以上の文字盤確認済みSold、少なくとも1件の比較可能価格、少なくとも1件のexactSoldPriceUsdがある場合だけpricingを作成。QUICK/TARGET/HIGHは保守的に。\n各事例: url,title,soldStatusConfirmed,exactSoldPriceUsd,displayedUpperBoundUsd,bestOfferAccepted,currentOrRelistedPrice,modelNumber,caseSizeMm,dialColor,dialEvidenceSource,specialDial,hasBox,hasPapers,accessoryUpperBound,condition,verificationReasonJa\nJSONのみ:{"ok":true,"pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},"confidence":"high|medium","reasonJa":"短い理由","verifiedComparables":[...]}。失敗時もverifiedComparablesは残す。`;
+  const dialHint = dialSearchHint(facts);
+  return `あなたはeBay.com中古ブランド品のSold/Completed根拠検証担当です。\n対象:\n${JSON.stringify(facts, null, 2)}\n候補URL:\n${JSON.stringify(urls, null, 2)}\n\n各URLを実際に確認してください。Sold/Completed未確認、別型番、明示的な別サイズ、部品/ジャンクは除外。時計はmodelNumber一致必須。caseSize未記載はcaseSizeMm=0で残してよい。\n対象文字盤色は「${clean(facts?.dialColor || facts?.color || "未指定")}」です。表記候補は「${dialHint}」。タイトルだけでなくItem specificsのDial Colorと説明も確認し、対象色そのものを別色として除外してはいけません。対象文字盤色と明示的に異なる色だけ除外してください。\nシャンパンの場合だけはDial Colorとして明示されたChampagne / Gold / Gold Tone / Yellow Goldを同系統として扱ってよい。ただしケース・ベゼル・ブレスのGoldから推測しない。文字盤色が未記載で、別色や特殊文字盤とも明示されない場合はdialColor=""、dialEvidenceSource="not_stated"として残し、対象色と断定しない。\n対象にないDiamond/Pyramid/Tapestry/MOP/Computer/Jubilee-pattern/Linen/Houndstooth/Custom/Aftermarketは除外。\nBox/Papers付きは対象が本体のみならaccessoryUpperBound=true。Best Offerで受諾価格非公開ならexactSoldPriceUsd=0、表示価格が確認できる場合だけdisplayedUpperBoundUsdへ。US $0.00、取消線、現在の再出品価格、類似商品価格は実売価格にしない。\n文字盤未記載の事例は調査結果として返すが自動価格算定には使わない。文字盤確認済みSoldが2件未満ならok=false。ok=falseでも確認できた事例をverifiedComparablesから捨てない。2件以上の文字盤確認済みSold、少なくとも1件の比較可能価格、少なくとも1件のexactSoldPriceUsdがある場合だけpricingを作成。QUICK/TARGET/HIGHは保守的に。\n各事例: url,title,soldStatusConfirmed,exactSoldPriceUsd,displayedUpperBoundUsd,bestOfferAccepted,currentOrRelistedPrice,modelNumber,caseSizeMm,dialColor,dialEvidenceSource,specialDial,hasBox,hasPapers,accessoryUpperBound,condition,verificationReasonJa\nJSONのみ:{"ok":true,"pricing":{"quickUsd":0,"targetUsd":0,"highUsd":0},"confidence":"high|medium","reasonJa":"短い理由","verifiedComparables":[...]}。失敗時もverifiedComparablesは残す。`;
 }
 
 function priceEvidence(item, facts) {
@@ -275,11 +299,28 @@ module.exports = async function handler(req, res) {
     const facts = factsOnly(req.body?.facts || {});
     if (!facts.categoryId || !facts.brandEnglish) return res.status(400).json({ ok: false, error: "categoryId and brandEnglish are required" });
 
-    const d = await searchWeb(discoveryPrompt(facts));
-    const dp = parseJson(d.text);
-    const sourceIds = new Set(uniqUrls(d.sources, true).map(ebayItemId));
-    const candidates = uniqUrls(dp?.candidateUrls, true).filter(u => sourceIds.has(ebayItemId(u))).slice(0, 12);
-    if (candidates.length < 2) return res.status(200).json({ ok: false, needsManualSoldInput: true, reason: clean(dp?.reasonJa || "条件に合うeBay Sold/Completed候補を2件以上確認できませんでした。"), evidenceUrls: uniqUrls(d.sources), comparables: [], webModel: MODEL, researchedAt: new Date().toISOString() });
+    const d1 = await searchWeb(discoveryPrompt(facts));
+    const dp1 = parseJson(d1.text);
+    let discoverySources = Array.isArray(d1.sources) ? d1.sources : [];
+    let candidatePool = Array.isArray(dp1?.candidateUrls) ? dp1.candidateUrls : [];
+    let sourceIds = new Set(uniqUrls(discoverySources, true).map(ebayItemId));
+    let candidates = uniqUrls(candidatePool, true).filter(u => sourceIds.has(ebayItemId(u))).slice(0, 12);
+    let discoveryReason = clean(dp1?.reasonJa);
+
+    if (candidates.length < 4) {
+      const d2 = await searchWeb(discoveryRetryPrompt(facts, candidates));
+      const dp2 = parseJson(d2.text);
+      discoverySources = uniqUrls([...discoverySources, ...(Array.isArray(d2.sources) ? d2.sources : [])]);
+      candidatePool = [
+        ...candidatePool,
+        ...(Array.isArray(dp2?.candidateUrls) ? dp2.candidateUrls : [])
+      ];
+      sourceIds = new Set(uniqUrls(discoverySources, true).map(ebayItemId));
+      candidates = uniqUrls(candidatePool, true).filter(u => sourceIds.has(ebayItemId(u))).slice(0, 12);
+      discoveryReason = clean(dp2?.reasonJa || discoveryReason);
+    }
+
+    if (candidates.length < 2) return res.status(200).json({ ok: false, needsManualSoldInput: true, reason: discoveryReason || "条件に合うeBay Sold/Completed候補を2件以上確認できませんでした。", evidenceUrls: uniqUrls(discoverySources), comparables: [], webModel: MODEL, researchedAt: new Date().toISOString() });
 
     const v = await searchWeb(verifyPrompt(facts, candidates));
     const vp = parseJson(v.text);
