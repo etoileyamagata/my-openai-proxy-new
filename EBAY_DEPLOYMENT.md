@@ -27,7 +27,7 @@ Neon Freeの「ailis-ebay」を作成済み（米国東部、Neon Authなし）�
 2. AILISフォルダの `eBay_管理者初期設定.html` をChromeまたはEdgeで開き、担当者用ログイン名・パスワードを決めます。ブラウザ内でハッシュと暗号化キーを生成します。この操作も追加ソフト不要です。
 3. Netlify Freeに登録し、出品用のプロジェクトを作成します。登録規約・GitHub等へのアクセス許可は内容を確認して同意します。NetlifyのEnvironment variablesへ下表を設定し、値の対象はProductionに限定します。Freeではスコープの個別制限はできないため標準のAll scopesを使い、ビルド処理は設定値を出力・埋め込みしません。Functionsへのスコープ限定のために有料プランへ変更しないでください。共有フォルダのJSやGitHubに秘密情報を置きません。[環境変数の設定条件](https://docs.netlify.com/build/environment-variables/overview/)
 4. SandboxのeBay開発者キーを用意し、OAuth用RuNameの認証成功URL・拒否時URLを `https://発行されたホスト名/api/ebay-trading?action=callback` に設定します。RuName欄に入力するのはURLではなく、eBayが発行したRuNameです。
-5. コードをレビューしてNetlifyへ反映します。`netlify.toml` はNode.js 24、ビルド `node scripts/build-ebay.cjs`、公開フォルダ `dist-ebay`、関数フォルダ `netlify/functions` を指定済みです。リポジトリルートを公開フォルダに設定しないでください。`/api/ebay-trading` は関数のconfig.pathで配信されます。同期処理は60秒上限のため、eBay通信全体を40秒で打ち切り、結果保存用の余裕を残します。[Netlify関数の設定・制限](https://docs.netlify.com/build/functions/configuration/)
+5. コードをレビューしてNetlifyへ反映します。`netlify.toml` はNode.js 24、ビルド `npm ci --omit=dev --no-audit --no-fund && node scripts/build-ebay.cjs`、公開フォルダ `dist-ebay`、関数フォルダ `netlify/functions` を指定済みです。リポジトリルートを公開フォルダに設定しないでください。`/api/ebay-trading` は関数のconfig.pathで配信されます。同期処理は60秒上限のため、eBay通信全体を40秒で打ち切り、結果保存用の余裕を残します。[Netlify関数の設定・制限](https://docs.netlify.com/build/functions/configuration/)
 6. `/ebay/` で担当者ログインできることを確認します。「接続設定」でSandboxを選び、eBayの画面でテスト出品者として認証します。接続は環境ごとに1アカウントで、全PC・全店舗が共有します。店舗別アカウントの同時利用には対応していません。
 7. 商品所在地と配送・返品・支払ポリシーを設定します。Sandboxで画像URL→事前検査→テスト出品→Item ID確認まで行います。本番用キーはSandbox確認後に設定し、本番Media APIの画像送信も確認します。
 8. 公開後、共有AILISの `yrtools_minami/AILIS/core/ebayConnection.js` の `portalUrl` に設置済みのHTTPS URLを設定します。店舗別ファイルを生成して配布している場合は、生成先にも同じ設定を反映します。各PCではAILIS画面を再読込します。
@@ -84,4 +84,8 @@ Netlify用のHTTP変換、Cookie、CSRF、転送ヘッダー偽装によるロ�
 
 2026-09-12 13:59、コミット `ecb459f039df133c0340715ff2e5d09d2b1d649b` を同ブランチへ反映し、Netlifyデプロイ `6aa4dc15462970000866aacb` のPublishedを確認しました。プロジェクトは引き続きPrivateです。担当者ログインの設定は、管理者自身がローカルの `eBay_管理者初期設定.html` をChrome/Edgeで開き、ログイン名・パスワードを入力するところから再開します。Codex内ブラウザのURL規則でfile://ページの自動表示は拒否されるため、手動で開きます。
 
-実配信後の関数ログで `Cannot find module 'fast-xml-parser'` が判明しました。Netlifyの配信設定で `pg` と `fast-xml-parser` を明示的に同梱し、ビルド前に `npm ci --no-audit --no-fund` で依存部品を揃える構成へ修正しています。ビルドスクリプトも実際に部品を読み込み、不足した状態を配信しないようにしました。本文のビルドコマンドは `npm ci --no-audit --no-fund && node scripts/build-ebay.cjs` に読み替えます。[Netlify公式の同梱設定](https://docs.netlify.com/build/configure-builds/file-based-configuration/)
+実配信後の関数ログで `Cannot find module 'fast-xml-parser'` が判明しました。NetlifyのV2関数はNFTで処理され、ローカルCommonJSから変換された `__require` 呼び出しの依存部品が追跡から漏れていました。`external_node_modules` の指定だけでは解決しないことを実配信・公式の梱包ツール15.5.1で再現しました。
+
+最終設定は `npm ci --omit=dev --no-audit --no-fund && node scripts/build-ebay.cjs` で本番依存部品だけを揃え、`included_files = ["node_modules/**"]` で関数へ同梱します。画面の公開対象は引き続き3つの静的ファイルだけです。ビルドスクリプトは部品を実際に読み込み、不足した状態を配信しません。[Netlify公式の同梱設定](https://docs.netlify.com/build/configure-builds/file-based-configuration/)
+
+新しい本番依存部品だけのディレクトリを作り、公式の梱包ツールで配信物を生成し、リポジトリから隔離した場所で起動しました。`tests/ebay-bundle.cjs <展開した関数のディレクトリ>` で、pg・XML部品が配信物内から読み込まれること、担当者ログインとCookie、模擬eBayのXML事前検査まで確認しています。実eBay通信はありません。

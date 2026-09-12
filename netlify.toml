@@ -1,5 +1,5 @@
 [build]
-  command = "npm ci --no-audit --no-fund && node scripts/build-ebay.cjs"
+  command = "npm ci --omit=dev --no-audit --no-fund && node scripts/build-ebay.cjs"
   publish = "dist-ebay"
   functions = "netlify/functions"
 
@@ -7,8 +7,9 @@
   NODE_VERSION = "24"
 
 [functions]
-  node_bundler = "esbuild"
-  external_node_modules = ["pg", "fast-xml-parser"]
+  # V2 functions use NFT tracing. Local CommonJS imports become __require
+  # calls that NFT can miss, so include the production dependencies explicitly.
+  included_files = ["node_modules/**"]
 
 [[redirects]]
   from = "/"
