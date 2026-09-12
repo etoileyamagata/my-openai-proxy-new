@@ -4,15 +4,17 @@
 
 ## 現在の状態
 
-ブランチ `codex/ebay-trading-shared-browser` のコミット `e0c0764071bd488d4569b4368d4bf1a03dad7892` をGitHubへ反映し、Netlify Freeに設置済みです。URLは `https://ailis-ebay.netlify.app/ebay/`、プロジェクトIDは `e5969f9a-6fbe-4ce9-ad7a-523b62ceb4c7`。2026-09-12 13:41のデプロイ `6aa4d7f17c82173e7c44df15` で画面3ファイルとAPI関数1個の設置完了を確認しました。現在はNetlifyのPrivate状態で、一般公開はしていません。
+2026-09-12 14:10、GitHubの `codex/ebay-trading-shared-browser` にコミット `7c7086bf5188119ba41289fe38fd9352fc3bda54` を反映しました。Netlify Freeの最新デプロイは `6aa4deceb0ead40008165472`。URLは `https://ailis-ebay.netlify.app/ebay/`、プロジェクトIDは `e5969f9a-6fbe-4ce9-ad7a-523b62ceb4c7` です。Publishedを確認し、配信部品の不足による接続エラーが解消して「担当者ログイン」が表示されることを実画面で確認しました。引き続きPrivateで、一般公開していません。
 
-Neon Freeの「ailis-ebay」を作成済み（米国東部、Neon Authなし）。VercelへのDB接続はスキップしました。NetlifyはFree・カード未登録を確認済みです。許可を得てGitHub Appを `etoileyamagata/my-openai-proxy-new` 1件に接続しました。
+Neon Free「ailis-ebay」の初期設定は完了しています。接続設定・作業中の商品・二重出品防止に必要な8テーブルと設定2行をQuery画面で確認し、読み取り専用へ戻しました。Neon Authは無効、VercelへのDB接続はスキップしています。利用者の許可を得て、Neonのプール対応接続情報をNetlifyの `DATABASE_URL` に、秘密の値としてProductionだけに保存しました。TLSは `sslmode=verify-full`。`AILIS_EBAY_ORIGIN=https://ailis-ebay.netlify.app` も設定済みです。接続文字列とパスワードはソース・共有フォルダ・この文書へ記録していません。
 
-2026-09-12、接続設定・作業中の商品・二重出品防止に必要なDB初期化を完了しました。NeonのQuery画面で8テーブル・設定2行を確認し、読み取り専用へ戻しました。利用者の許可を得て、Netlifyへ `DATABASE_URL` を秘密の値としてProductionだけに保存しました。TLSは `sslmode=verify-full`、プール対応URLです。`AILIS_EBAY_ORIGIN=https://ailis-ebay.netlify.app` も設定済みです。接続文字列やパスワードはソース・共有フォルダ・この文書に記録していません。
+NetlifyはFree・カード未登録で進めています。GitHub Appは許可を得て `etoileyamagata/my-openai-proxy-new` 1件だけに接続しました。mainと既存Vercel APIは変更していません。
 
-担当者ログイン名・パスワードハッシュ・セッションキー・暗号化キーと、eBay開発者キーの設定は未完了です。NetlifyからDBへの実接続は担当者ログイン設定後に検証します。実eBay接続・実出品は未実施です。画面の履歴一覧を作業中の商品だけに変更し、成功確認済みを除外する修正を加えました。APIの34検証と、2つの独立したブラウザからの操作・出品完了一覧除外・結果不明の照会を模擬応答で確認済みです。
+次に管理者が `AILIS/eBay_管理者初期設定.html` をChrome/Edgeで開き、担当者ログイン名・12文字以上のパスワードを決めて「設定値を作成」を押します。新しいパスワードの入力・作成は本人が行います。CodexブラウザのURL規則がfile://への自動表示を拒否したため、手動で開く必要があります。パスワード・生成したキーをチャットへ貼り付けないよう案内しています。
 
-追加するのは `netlify/functions/ebay-trading.mjs`、`api/ebay-trading.js`、`lib/ebay/`、`ebay/`、`db/ebay.sql` などです。Netlifyには出品用のAPIと3つの画面ファイルを配信します。既存のchat-luna・ebay-market・serp処理は変更していません。以降の `https://YOUR-SITE.netlify.app` は、上記の発行済みホスト名に読み替えます。
+未完了は、担当者ログイン名・パスワードハッシュ・セッションキー・暗号化キーの登録、NetlifyからDBへの実接続確認、eBay開発者キー・OAuth接続、Sandboxの実検査です。実eBay接続・画像送信・実出品はしていません。AILISのportalUrlは準備完了まで空欄です。
+
+振り返り用の履歴一覧を省き、「作業中の商品」に成功確認済みの商品を表示しない変更を反映しました。二重出品防止・直後の結果確認・Sandboxから本番への引継ぎに使うデータは内部に残します。APIの34検証、2つの独立したブラウザでの操作、公式梱包ツールで作った配信物の隔離起動・XML検査まで模擬応答で確認済みです。
 
 ## 無料で運用する条件
 
@@ -89,3 +91,24 @@ Netlify用のHTTP変換、Cookie、CSRF、転送ヘッダー偽装によるロ�
 最終設定は `npm ci --omit=dev --no-audit --no-fund && node scripts/build-ebay.cjs` で本番依存部品だけを揃え、`included_files = ["node_modules/**"]` で関数へ同梱します。画面の公開対象は引き続き3つの静的ファイルだけです。ビルドスクリプトは部品を実際に読み込み、不足した状態を配信しません。[Netlify公式の同梱設定](https://docs.netlify.com/build/configure-builds/file-based-configuration/)
 
 新しい本番依存部品だけのディレクトリを作り、公式の梱包ツールで配信物を生成し、リポジトリから隔離した場所で起動しました。`tests/ebay-bundle.cjs <展開した関数のディレクトリ>` で、pg・XML部品が配信物内から読み込まれること、担当者ログインとCookie、模擬eBayのXML事前検査まで確認しています。実eBay通信はありません。
+
+## 担当者ログイン登録の引継ぎ（2026-09-12）
+
+管理者から「設定値を作成しました」と報告あり。設定値は受領・読取していません。NetlifyのEnvironment variablesで「Import from a .env file」を開き、次の4行だけを入力して本人へ引き継ぎました。まだImport variablesは押していません。
+
+```text
+AILIS_LOGIN_USER=
+AILIS_LOGIN_PASSWORD_HASH=
+AILIS_SESSION_SECRET=
+AILIS_EBAY_ENCRYPTION_KEY=
+```
+
+Contains secret valuesはチェック済み、Deploy contextsはProductionのみです。管理者が初期設定画面の各「コピー」で値をコピーし、同名行の等号直後に貼り付けてImport variablesを押します。パスワードそのものは貼り付けません。初期設定画面は引き続き閉じないよう案内します。ブラウザ操作規則の新規認証情報入力・保存の本人操作要件に従って引き継いでいます。後続では入力中の秘密を画面出力せず、4項目の登録名と対象環境を確認し、再デプロイ、本人の担当者ログイン、DB実接続確認へ進みます。
+
+## 担当者ログイン設定の保存確認（2026-09-12）
+
+利用者から保存完了の報告を受け、Netlify UIで4項目の存在とProductionの非空マスク表示、他の環境がEmptyであることを確認しました。実際の値は読み出していません。再デプロイ `6aa4e8799e2cb96720a0a982` はログイン名を秘密扱いしたことによるスキャンの誤検知で停止しました。ログには `AILIS_LOGIN_USER` だけが既存のAILIS文字列と一致したと記録されています。
+
+`netlify.toml` へ `SECRETS_SCAN_OMIT_KEYS = "AILIS_LOGIN_USER"` を加え、非機密の識別子だけを対象外とします。秘密のハッシュ・セッションキー・暗号化キー・DB接続情報のスキャンは継続します。変数の登録値・認証方式は変更しません。[Netlify公式のキー単位の除外設定](https://docs.netlify.com/build/environment-variables/secrets-controller/)
+
+反映が成功したら、利用者自身が `https://ailis-ebay.netlify.app/ebay/` の「担当者ログイン」に作成したログイン名・パスワードを入力して確認します。DBの実接続確認もこのログインで行います。eBay開発者キーと実接続は引き続き未設定です。

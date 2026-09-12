@@ -5,6 +5,9 @@
 
 [build.environment]
   NODE_VERSION = "24"
+  # The staff login name is an identifier and can match existing AILIS text.
+  # Keep password hashes, session/encryption keys and database secrets scanned.
+  SECRETS_SCAN_OMIT_KEYS = "AILIS_LOGIN_USER"
 
 [functions]
   # V2 functions use NFT tracing. Local CommonJS imports become __require
