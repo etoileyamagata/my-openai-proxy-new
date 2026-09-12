@@ -1,6 +1,10 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+// Fail the build if runtime dependencies are missing, instead of publishing
+// a page whose API only fails when the first user opens it.
+require('../lib/ebay/core');
+require('pg');
 const root=path.resolve(__dirname,'..');
 const output=path.join(root,'dist-ebay','ebay');
 fs.mkdirSync(output,{recursive:true});

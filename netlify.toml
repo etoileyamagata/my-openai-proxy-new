@@ -1,5 +1,5 @@
 [build]
-  command = "node scripts/build-ebay.cjs"
+  command = "npm ci --no-audit --no-fund && node scripts/build-ebay.cjs"
   publish = "dist-ebay"
   functions = "netlify/functions"
 
@@ -8,7 +8,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["pg"]
+  external_node_modules = ["pg", "fast-xml-parser"]
 
 [[redirects]]
   from = "/"

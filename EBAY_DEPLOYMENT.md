@@ -81,3 +81,7 @@ Netlify用のHTTP変換、Cookie、CSRF、転送ヘッダー偽装によるロ�
 ## 出品履歴を使わない方針
 
 振り返り用の履歴一覧は設けません。「作業中の商品」は未完了・結果確認中だけを表示し、出品成功が確認された商品を除外します。二重出品防止と送信直後の結果確認、Sandboxから本番への商品引継ぎに使う保存済みデータは内部に残します。Neonはこの送信管理に加え、全PCの接続設定・作業中の商品を共有するために使います。
+
+2026-09-12 13:59、コミット `ecb459f039df133c0340715ff2e5d09d2b1d649b` を同ブランチへ反映し、Netlifyデプロイ `6aa4dc15462970000866aacb` のPublishedを確認しました。プロジェクトは引き続きPrivateです。担当者ログインの設定は、管理者自身がローカルの `eBay_管理者初期設定.html` をChrome/Edgeで開き、ログイン名・パスワードを入力するところから再開します。Codex内ブラウザのURL規則でfile://ページの自動表示は拒否されるため、手動で開きます。
+
+実配信後の関数ログで `Cannot find module 'fast-xml-parser'` が判明しました。Netlifyの配信設定で `pg` と `fast-xml-parser` を明示的に同梱し、ビルド前に `npm ci --no-audit --no-fund` で依存部品を揃える構成へ修正しています。ビルドスクリプトも実際に部品を読み込み、不足した状態を配信しないようにしました。本文のビルドコマンドは `npm ci --no-audit --no-fund && node scripts/build-ebay.cjs` に読み替えます。[Netlify公式の同梱設定](https://docs.netlify.com/build/configure-builds/file-based-configuration/)
