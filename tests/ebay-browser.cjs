@@ -86,6 +86,10 @@ async function main() {
     await Promise.all([page.locator('#publish').click(),other.locator('#publish').click()]);await idle(page);await idle(other);
     assert.equal(f.remote.adds().length,1);
     await other.locator('#reload-draft').click();await idle(other);assert.match(await other.locator('#published-result').innerText(),/123456789012/);
+    await other.locator('#worklist-toggle').click();await idle(other);
+    assert.equal(await other.locator('#worklist-list [data-draft-id]').count(),0);
+    assert.match(await other.locator('#worklist-list').innerText(),/作業中の商品はありません/);
+    await other.locator('#worklist-toggle').click();
     await page.locator('#clone-draft').click();await idle(page);
     const image=Buffer.alloc(3*1048576+10);Buffer.from([255,216,255]).copy(image);
     await page.locator('#image-files').setInputFiles({name:'camera.jpg',mimeType:'image/jpeg',buffer:image});await idle(page);

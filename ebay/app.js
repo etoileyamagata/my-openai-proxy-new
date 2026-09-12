@@ -211,7 +211,7 @@
     } catch (error) { await loadSettings(currentEnvironment()); throw error; }
   }));
   $('clear-credentials').addEventListener('click', () => {
-    if (!confirm(envLabel(currentEnvironment()) + 'のeBay接続を全PCで解除しますか？ 出品履歴は残ります。')) return;
+    if (!confirm(envLabel(currentEnvironment()) + 'のeBay接続を全PCで解除しますか？ 作業中の商品と二重出品防止の記録は残ります。')) return;
     run('認証情報を削除しています。', async () => {
       const result = await api('save_settings', {environment:currentEnvironment(), settings:{clear_credentials:true}});
       fillSettings(result.settings); message('認証情報を削除しました。', 'success');
@@ -232,18 +232,18 @@
     $(button.dataset.selectPolicy + '_policy_id').value = button.dataset.policyId;
     message('ポリシーを選びました。「設定を保存」で確定してください。');
   });
-  async function loadHistory() {
-    const result = await api('history');
-    $('history-list').innerHTML = result.drafts.length ? result.drafts.map(d => `<div class="history-item"><div><strong>${escape(d.title)}</strong><small>${escape(d.sku)} · ${escape(envLabel(d.environment))} · ${escape(names[d.state])} · ${escape(date(d.updated_at))}</small></div><button data-draft-id="${d.id}">開く</button></div>`).join('') : '<p class="muted">出品準備はまだありません。</p>';
+  async function loadWorklist() {
+    const result = await api('worklist');
+    $('worklist-list').innerHTML = result.drafts.length ? result.drafts.map(d => `<div class="worklist-item"><div><strong>${escape(d.title)}</strong><small>${escape(d.sku)} · ${escape(envLabel(d.environment))} · ${escape(names[d.state])} · ${escape(date(d.updated_at))}</small></div><button data-draft-id="${d.id}">開く</button></div>`).join('') : '<p class="muted">作業中の商品はありません。</p>';
   }
-  $('history-toggle').addEventListener('click', () => {
-    $('history').hidden = !$('history').hidden;
-    if (!$('history').hidden) run('出品履歴を読み込んでいます。', async () => { await loadHistory(); message(''); });
+  $('worklist-toggle').addEventListener('click', () => {
+    $('worklist').hidden = !$('worklist').hidden;
+    if (!$('worklist').hidden) run('作業中の商品を読み込んでいます。', async () => { await loadWorklist(); message(''); });
   });
-  $('refresh-history').addEventListener('click', () => run('出品履歴を読み込んでいます。', async () => { await loadHistory(); message(''); }));
-  $('history-list').addEventListener('click', event => {
+  $('refresh-worklist').addEventListener('click', () => run('作業中の商品を読み込んでいます。', async () => { await loadWorklist(); message(''); }));
+  $('worklist-list').addEventListener('click', event => {
     const button = event.target.closest('[data-draft-id]');
-    if (button) run('出品準備を読み込んでいます。', async () => { await adopt(await api('draft', {draft_id:button.dataset.draftId})); $('history').hidden = true; message(''); });
+    if (button) run('出品準備を読み込んでいます。', async () => { await adopt(await api('draft', {draft_id:button.dataset.draftId})); $('worklist').hidden = true; message(''); });
   });
   $('reload-draft').addEventListener('click', () => run('保存状態を読み込んでいます。', async () => { await adopt(await api('draft',{draft_id:draft.id})); message('保存状態を読み込みました。', 'success'); }));
   $('clone-draft').addEventListener('click', () => run('出品準備を作成しています。', async () => {

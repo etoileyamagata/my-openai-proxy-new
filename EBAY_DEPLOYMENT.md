@@ -4,9 +4,15 @@
 
 ## 現在の状態
 
-ブランチ `codex/ebay-trading-shared-browser` に実装済み。Neon Freeの「ailis-ebay」を作成済み（米国東部、Neon Authなし）。VercelプロジェクトへのDB接続はスキップしました。Netlifyは登録済みで、Free・300 credits・カード未登録を料金画面で確認済みです。ユーザーの許可を得てGitHub Appを `etoileyamagata/my-openai-proxy-new` 1件に接続済みです。DBテーブル初期化とNetlifyデプロイの準備中で、eBay実接続・実出品は未実施です。現時点の `/ebay/` 公開URLは未発行です。
+ブランチ `codex/ebay-trading-shared-browser` のコミット `e0c0764071bd488d4569b4368d4bf1a03dad7892` をGitHubへ反映し、Netlify Freeに設置済みです。URLは `https://ailis-ebay.netlify.app/ebay/`、プロジェクトIDは `e5969f9a-6fbe-4ce9-ad7a-523b62ceb4c7`。2026-09-12 13:41のデプロイ `6aa4d7f17c82173e7c44df15` で画面3ファイルとAPI関数1個の設置完了を確認しました。現在はNetlifyのPrivate状態で、一般公開はしていません。
 
-追加するのは `netlify/functions/ebay-trading.mjs`、`api/ebay-trading.js`、`lib/ebay/`、`ebay/`、`db/ebay.sql` などです。Netlifyには出品用のAPIと3つの画面ファイルのみ配信します。既存のchat-luna・ebay-market・serp処理は変更していません。`https://YOUR-SITE.netlify.app` は説明用の仮URLであり、設置済みURLではありません。
+Neon Freeの「ailis-ebay」を作成済み（米国東部、Neon Authなし）。VercelへのDB接続はスキップしました。NetlifyはFree・カード未登録を確認済みです。許可を得てGitHub Appを `etoileyamagata/my-openai-proxy-new` 1件に接続しました。
+
+2026-09-12、接続設定・作業中の商品・二重出品防止に必要なDB初期化を完了しました。NeonのQuery画面で8テーブル・設定2行を確認し、読み取り専用へ戻しました。利用者の許可を得て、Netlifyへ `DATABASE_URL` を秘密の値としてProductionだけに保存しました。TLSは `sslmode=verify-full`、プール対応URLです。`AILIS_EBAY_ORIGIN=https://ailis-ebay.netlify.app` も設定済みです。接続文字列やパスワードはソース・共有フォルダ・この文書に記録していません。
+
+担当者ログイン名・パスワードハッシュ・セッションキー・暗号化キーと、eBay開発者キーの設定は未完了です。NetlifyからDBへの実接続は担当者ログイン設定後に検証します。実eBay接続・実出品は未実施です。画面の履歴一覧を作業中の商品だけに変更し、成功確認済みを除外する修正を加えました。APIの34検証と、2つの独立したブラウザからの操作・出品完了一覧除外・結果不明の照会を模擬応答で確認済みです。
+
+追加するのは `netlify/functions/ebay-trading.mjs`、`api/ebay-trading.js`、`lib/ebay/`、`ebay/`、`db/ebay.sql` などです。Netlifyには出品用のAPIと3つの画面ファイルを配信します。既存のchat-luna・ebay-market・serp処理は変更していません。以降の `https://YOUR-SITE.netlify.app` は、上記の発行済みホスト名に読み替えます。
 
 ## 無料で運用する条件
 
@@ -45,16 +51,16 @@ Deploy Previewを使う場合は、固定したPreviewオリジン、専用DB、
 
 共有フォルダからAILISを開く → 通常のGATE・属性確認 →「画像・API出品へ進む」→ 共通画面へログイン → 画像と出品条件を確認 → 事前検査 → 最終確認して公開。
 
-商品JSONはURLフラグメントから受け取り、直ちにURLから除去します。ログイン待ち・eBay認証中はそのタブのsessionStorageで引継ぎを保持します。出品準備作成後は共通DBに保存し、別PCから履歴で開けます。各PCにeBayのキーを入力する操作はありません。担当者ログインは8時間で期限切れとなり、ログアウト時はサーバーのセッションを削除します。
+商品JSONはURLフラグメントから受け取り、直ちにURLから除去します。ログイン待ち・eBay認証中はそのタブのsessionStorageで引継ぎを保持します。出品準備作成後は共通DBに保存し、別PCから「作業中の商品」で開けます。各PCにeBayのキーを入力する操作はありません。担当者ログインは8時間で期限切れとなり、ログアウト時はサーバーのセッションを削除します。
 
-## 出品・画像・履歴
+## 出品・画像・作業の共有
 
 - 対応はAILISの既存時計・バッグ・財布・ジュエリーの米国固定価格・GTC・数量1。TARGETを出品価格、QUICKをBest Offer自動拒否価格にし、自動承諾は設定しません。
 - VerifyAddFixedPriceItemで検査後、AddFixedPriceItemで公開します。検査有効期間は15分。画像・商品・共通設定の変更時は再検査します。最終確認と明示的な出品操作が必須です。
 - 本番画像はMedia APIのcreateImageFromFileで登録します。JPEG・PNG・GIF、1枚12MiB、最大24枚。1MiBずつ分割して共通DBへ一時保存し、eBay送信後に削除します。中断分は30分で使用不能となり、次回アップロード開始時に削除します。開始回数は全PC合計240回/時までです。Sandboxの画像は公開HTTPS URLを使用します。
 - 1MiB単位の分割により、Netlifyの関数入力上限とAPI自身の1,500,000バイト制限内に収めます。元画像を縮小・再圧縮しません。
 - 環境・出品者・SKUを一意キーにして、送信記録をDBへ確定してから出品します。複数PC・複数サーバー実行間でも同じ商品の二重送信を防ぎます。別PCの古い画面からの上書きは拒否します。
-- タイムアウト・サーバー停止・応答不明は自動再送しません。履歴の「出品結果を照会」でSKUとUUIDを照合します。確定できない場合は停止を維持します。明確な入力エラーだけ、修正・再検査後に再試行できます。
+- タイムアウト・サーバー停止・応答不明は自動再送しません。作業中の商品の「出品結果を照会」でSKUとUUIDを照合します。確定できない場合は停止を維持します。明確な入力エラーだけ、修正・再検査後に再試行できます。
 - 共通DBは認証情報、出品準備、画像URL、送信記録を保持します。DBと暗号化キーは両方バックアップしてください。出品後に古いDBへ戻すと送信済み記録を失うため、Seller Hubの実出品と照合してから運用を再開します。
 - MC999等によるアカウント制限の解除はeBay側での対応が必要です。APIへの変更自体で制限が解除されるとは扱いません。
 
@@ -71,3 +77,7 @@ npm run test:browser
 ブラウザテストにはPlaywrightとEdge（Windows）またはChromiumを使用します。別の場所にPlaywrightがある場合は `AILIS_PLAYWRIGHT_MODULE` を指定できます。テストDBはPGliteの一時メモリ上に作成し、本番と同じPostgreSQLのSQLを実行します。実eBay通信は全て模擬応答です。ブラウザテストは2つの独立したブラウザプロファイルを使い、AILISが隣のフォルダにあれば実際のJSON生成・file://引継ぎも検証します。
 
 Netlify用のHTTP変換、Cookie、CSRF、転送ヘッダー偽装によるログイン回数制限回避、画像チャンク、認証更新で通信期限を消費した場合の重複防止も模擬検証しています。実Netlify上の配信・PostgreSQL接続・OAuthコールバック・Sandboxテスト出品・本番Mediaアップロードは、環境設定後の確認事項です。
+
+## 出品履歴を使わない方針
+
+振り返り用の履歴一覧は設けません。「作業中の商品」は未完了・結果確認中だけを表示し、出品成功が確認された商品を除外します。二重出品防止と送信直後の結果確認、Sandboxから本番への商品引継ぎに使う保存済みデータは内部に残します。Neonはこの送信管理に加え、全PCの接続設定・作業中の商品を共有するために使います。

@@ -38,6 +38,20 @@ test('Shared Trading API',async t=>{
     const p=product('shared-sku');p.title='Edited';let other=await f.store.create('sandbox',c.product(p),'kita');other.images=d.images;other=await f.store.saveDraft(other,other.revision);other=await f.service.verify(other);
     await assert.rejects(()=>f.service.publish(other,confirmed(other)),/SKU/);
   });
+  await t.test('worklist removes confirmed listings but keeps unfinished and uncertain work',async()=>{
+    const unfinished=await f.draft('worklist-draft');
+    let pending=await f.ready('worklist-pending');f.remote.mode='timeout';
+    pending=await f.service.publish(pending,confirmed(pending));f.remote.mode='success';
+    const done=await f.ready('worklist-done');await f.service.publish(done,confirmed(done));
+    const rows=await f.store.worklist();
+    assert(rows.some(x=>x.id===unfinished.id));assert(rows.some(x=>x.id===pending.id));
+    assert(!rows.some(x=>x.state==='published'));
+    assert.equal((await f.store.draft(done.id)).item_id,(await f.service.publish(await f.store.draft(done.id),{})).item_id);
+    await f.service.reconcile(pending);
+    assert(!(await f.store.worklist()).some(x=>x.id===pending.id));
+    const changed=await f.draft('worklist-done');
+    assert.equal(changed.state,'published');
+  });
   for(const mode of ['timeout','malformed','http500','system-error','duplicate']) await t.test(mode+' is durable and cannot trigger an automatic retry',async()=>{
     const d=await f.ready('unknown-'+mode);f.remote.mode=mode;
     const sent=await f.service.publish(d,confirmed(d));assert.equal(sent.state,'unknown');

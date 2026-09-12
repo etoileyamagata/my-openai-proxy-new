@@ -8,7 +8,7 @@
   <script src="/ebay/app.js" defer></script>
 </head>
 <body>
-  <header><a class="brand" href="/ebay/">AILIS <span>eBay出品</span></a><nav id="app-nav" hidden><button id="settings-toggle">接続設定</button><button id="history-toggle">出品準備・履歴</button><button id="logout">ログアウト</button></nav></header>
+  <header><a class="brand" href="/ebay/">AILIS <span>eBay出品</span></a><nav id="app-nav" hidden><button id="settings-toggle">接続設定</button><button id="worklist-toggle">作業中の商品</button><button id="logout">ログアウト</button></nav></header>
   <main>
     <div class="heading"><div><div class="eyebrow">TRADING API</div><h1>確認して、eBayへ出品</h1><p>AILISの商品情報に画像を加え、eBayの事前検査後に公開します。</p></div><span id="environment-badge" class="badge">Sandbox · テスト</span></div>
     <div id="message" role="status" aria-live="polite" hidden></div>
@@ -17,7 +17,7 @@
     <section id="settings" class="panel" hidden>
       <div class="section-title"><h2>接続設定</h2><label>設定する環境 <select id="settings-environment"><option value="sandbox">Sandbox（テスト）</option><option value="production">Production（本番）</option></select></label></div>
       <p id="account-state">接続未確認</p>
-      <p class="muted">eBayの画面でログインしてAILISとの接続を許可します。接続設定と出品履歴は全PCで共有します。</p>
+      <p class="muted">eBayの画面でログインしてAILISとの接続を許可します。接続設定と作業中の商品は全PCで共有します。</p>
       <button type="button" id="connect-ebay" class="primary">eBayアカウントに接続</button><p id="oauth-help" class="muted"></p>
       <form id="settings-form" autocomplete="off">
         <div class="grid">
@@ -37,7 +37,7 @@
         <p class="muted">認証情報を変更した場合は、保存後に接続を再確認してください。本番出品の設定も解除されます。</p>
       </form>
     </section>
-    <section id="history" class="panel" hidden><div class="section-title"><h2>出品準備・履歴</h2><button id="refresh-history">再読込</button></div><div id="history-list"></div></section>
+    <section id="worklist" class="panel" hidden><div class="section-title"><h2>作業中の商品</h2><button id="refresh-worklist">再読込</button></div><div id="worklist-list"></div></section>
     <section id="welcome" class="panel"><h2>商品情報はAILISから引き継ぎます</h2><p>商品入力画面の「eBay一括用」からGATE判定・商品属性の確認を進め、「画像・API出品へ進む」を押してください。</p><p>まずは「接続設定」でSandboxアカウントを設定できます。</p><button id="welcome-settings" class="primary">接続設定を開く</button></section>
     <div id="workspace" hidden>
       <ol class="steps"><li>1 商品内容</li><li>2 画像</li><li>3 事前検査</li><li>4 確認・出品</li></ol>
@@ -49,7 +49,7 @@
       <section class="panel publish-panel"><h2>4 確認して出品</h2><div id="publish-summary"></div><label id="confirm-row" class="check"><input id="publish-confirm" type="checkbox">画像・価格・配送・返品条件・出品先を確認しました</label><button id="publish" class="primary" disabled>Sandboxにテスト出品する</button><button id="reconcile" hidden>出品結果を照会</button><div id="published-result"></div></section>
     </div>
     </div>
-    <footer>画像登録：Media API ／ 検査・出品：Trading API<br>接続設定・出品履歴は共通サーバーに保存されます。</footer>
+    <footer>画像登録：Media API ／ 検査・出品：Trading API<br>接続設定・作業中の商品は共通サーバーに保存されます。</footer>
   </main>
 </body>
 </html>
