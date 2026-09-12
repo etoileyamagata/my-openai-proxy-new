@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/ebay-market.test.js"
+    "test": "node tests/ebay-market.test.js && node --test tests/ebay-trading.test.js tests/ebay-netlify.test.js",
+    "test:browser": "node tests/ebay-browser.cjs"
   },
   "keywords": [],
   "author": "",
@@ -11,6 +12,11 @@
   "description": "",
   "dependencies": {
     "axios": "^1.10.0",
-    "openai": "^5.8.3"
+    "fast-xml-parser": "5.11.1",
+    "openai": "^5.8.3",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }

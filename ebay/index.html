@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>eBay出品 | AILIS</title>
+  <link rel="stylesheet" href="/ebay/style.css">
+  <script src="/ebay/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/ebay/">AILIS <span>eBay出品</span></a><nav id="app-nav" hidden><button id="settings-toggle">接続設定</button><button id="history-toggle">出品準備・履歴</button><button id="logout">ログアウト</button></nav></header>
+  <main>
+    <div class="heading"><div><div class="eyebrow">TRADING API</div><h1>確認して、eBayへ出品</h1><p>AILISの商品情報に画像を加え、eBayの事前検査後に公開します。</p></div><span id="environment-badge" class="badge">Sandbox · テスト</span></div>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+    <section id="login" class="panel" hidden><h2>担当者ログイン</h2><p>管理者から案内されたログイン名とパスワードを入力してください。</p><form id="login-form"><div class="grid"><label>ログイン名<input id="login-user" autocomplete="username" required></label><label>パスワード<input id="login-password" type="password" autocomplete="current-password" required></label></div><button class="primary" type="submit">ログイン</button></form><p class="muted">共有フォルダのAILISから引き継いだ商品は、ログイン後に表示します。</p></section>
+    <div id="app-content" hidden>
+    <section id="settings" class="panel" hidden>
+      <div class="section-title"><h2>接続設定</h2><label>設定する環境 <select id="settings-environment"><option value="sandbox">Sandbox（テスト）</option><option value="production">Production（本番）</option></select></label></div>
+      <p id="account-state">接続未確認</p>
+      <p class="muted">eBayの画面でログインしてAILISとの接続を許可します。接続設定と出品履歴は全PCで共有します。</p>
+      <button type="button" id="connect-ebay" class="primary">eBayアカウントに接続</button><p id="oauth-help" class="muted"></p>
+      <form id="settings-form" autocomplete="off">
+        <div class="grid">
+          <label>商品所在地（英語・日本国内）<input id="location" placeholder="例：Miyagi, Japan" maxlength="80"></label>
+          <label>商品所在地の郵便番号<input id="postal_code" placeholder="例：123-4567" maxlength="10"></label>
+        </div>
+        <div class="section-title"><h3>出品に使うビジネスポリシー</h3><button id="load-policies" type="button">eBayから一覧取得</button></div>
+        <p class="muted">既存の「米国向け配送・返品不可・Managed Payments」に対応するポリシーを選びます。送料・発送日数はeBay側のポリシーが適用されます。</p>
+        <div class="grid policy-grid">
+          <label>配送ポリシーID<input id="shipping_policy_id" list="shipping-policies" inputmode="numeric"><datalist id="shipping-policies"></datalist></label>
+          <label>返品ポリシーID<input id="return_policy_id" list="return-policies" inputmode="numeric"><datalist id="return-policies"></datalist></label>
+          <label>支払ポリシーID<input id="payment_policy_id" list="payment-policies" inputmode="numeric"><datalist id="payment-policies"></datalist></label>
+        </div>
+        <div id="policy-details"></div>
+        <label id="production-setting" class="check" hidden><input type="checkbox" id="production_enabled">このeBayアカウントで出品できる状態を確認し、本番出品を有効にする</label>
+        <div class="actions"><button class="primary" type="submit">設定を保存</button><button type="button" id="check-connection">接続を確認</button><button type="button" id="clear-credentials">eBayとの接続を解除</button></div>
+        <p class="muted">認証情報を変更した場合は、保存後に接続を再確認してください。本番出品の設定も解除されます。</p>
+      </form>
+    </section>
+    <section id="history" class="panel" hidden><div class="section-title"><h2>出品準備・履歴</h2><button id="refresh-history">再読込</button></div><div id="history-list"></div></section>
+    <section id="welcome" class="panel"><h2>商品情報はAILISから引き継ぎます</h2><p>商品入力画面の「eBay一括用」からGATE判定・商品属性の確認を進め、「画像・API出品へ進む」を押してください。</p><p>まずは「接続設定」でSandboxアカウントを設定できます。</p><button id="welcome-settings" class="primary">接続設定を開く</button></section>
+    <div id="workspace" hidden>
+      <ol class="steps"><li>1 商品内容</li><li>2 画像</li><li>3 事前検査</li><li>4 確認・出品</li></ol>
+      <section class="panel"><div class="section-title"><h2>1 商品内容</h2><span id="draft-state" class="badge"></span></div><div id="product-summary"></div><details><summary>商品説明・Item Specifics</summary><div id="product-details"></div></details><div class="actions"><button id="clone-draft">本番用の出品準備を作る</button><button id="reload-draft">保存状態を再読込</button></div><p class="muted">価格・属性の修正は元のAILIS画面で行い、GATE判定後に引き継ぎ直してください。</p></section>
+      <section class="panel"><h2>2 商品画像 <span id="image-count" class="muted"></span></h2><p>先頭の画像がメイン画像です。最大24枚まで登録できます。</p><div id="images" class="images"></div>
+        <div id="image-edit"><div id="file-area"><label class="upload">画像ファイルを選択 <input id="image-files" type="file" accept="image/jpeg,image/png,image/gif" multiple></label><p class="muted">JPEG・PNG・GIF、1枚12MB以下。選択するとeBayへ画像を送信します。</p></div><p id="sandbox-image-note" class="muted">Sandboxでは、テストに使用できる公開HTTPS画像URLを登録してください。</p><label>公開HTTPS画像URL（1行につき1枚）<textarea id="image-urls" rows="3" placeholder="https://..."></textarea></label><button id="add-urls">URLの画像を追加</button></div>
+      </section>
+      <section class="panel"><h2>3 eBayで事前検査</h2><p>商品内容、画像、ポリシーをeBayに送信して確認します。この段階では出品は公開されません。</p><button id="verify" class="primary">事前検査を実行</button><div id="verification"></div></section>
+      <section class="panel publish-panel"><h2>4 確認して出品</h2><div id="publish-summary"></div><label id="confirm-row" class="check"><input id="publish-confirm" type="checkbox">画像・価格・配送・返品条件・出品先を確認しました</label><button id="publish" class="primary" disabled>Sandboxにテスト出品する</button><button id="reconcile" hidden>出品結果を照会</button><div id="published-result"></div></section>
+    </div>
+    </div>
+    <footer>画像登録：Media API ／ 検査・出品：Trading API<br>接続設定・出品履歴は共通サーバーに保存されます。</footer>
+  </main>
+</body>
+</html>
