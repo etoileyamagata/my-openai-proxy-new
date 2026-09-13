@@ -33,7 +33,6 @@ function parseLegacyProductSummaryFacts(message) {
     brandJapanese: extractPromptField(text, "Brand"),
     modelNumber: extractPromptField(text, "Model Number"),
     productName: extractPromptField(text, "Product Name"),
-    color: extractPromptField(text, "Color"),
     purity: extractPromptField(text, "Purity")
   };
 
@@ -64,59 +63,52 @@ function cleanReply(value) {
     .trim();
 }
 
-function countOccurrences(text, value) {
-  const target = String(value || "").trim();
-  if (!target) return 0;
-  return String(text || "").split(target).length - 1;
-}
-
-function needsNaturalRewrite(description, facts) {
-  const text = String(description || "").trim();
-  if (!text) return true;
-
-  const bannedPhrases = [
-    "ブランド名は",
-    "商品名は",
-    "モデル番号は",
-    "カラーは",
-    "商品情報です",
-    "確認済み",
-    "ご案内します",
-    "ご確認いただけます",
-    "お探しの方に"
-  ];
-
-  if (bannedPhrases.some((phrase) => text.includes(phrase))) return true;
-  if (text.length > 240) return true;
-
-  const identityValues = [
-    facts.brandJapanese,
-    facts.modelNumber,
-    facts.productName,
-    facts.color
-  ].filter(Boolean);
-
-  return identityValues.some((value) => countOccurrences(text, value) > 1);
-}
-
-function buildNaturalRewritePrompt(facts) {
+function buildSalesRecommendationPrompt(context) {
   return `
-[INSTRUCTION]
-以下の確認済み情報だけを使って、中古ブランド品EC向けの自然な日本語の商品説明を作成してください。
+[ROLE]
+あなたは中古ブランド品を扱うECショップの経験豊富な販売員です。
+入力された商品を理解したうえで、購入を検討しているお客様に魅力が伝わる自然な商品説明を書いてください。
 
-[STRICT RULES]
-- 1〜3文で簡潔にまとめてください。
-- 80〜180字を目安としますが、情報が少ない場合は短くて構いません。
-- 同じ事実を言い換えて繰り返さないでください。
+[目的]
+- 単なる項目の読み上げではなく、「どのような商品か」「どこが魅力か」「どのような使い方や人に向いているか」が伝わる説明にしてください。
+- 商品の特徴から合理的に導ける範囲で、使用イメージやおすすめ対象まで自然につなげてください。
+- おすすめ表現は販売員として自然な範囲にし、誇大表現や根拠のない断定はしないでください。
+
+[最重要ルール]
+- 出力は商品説明本文だけです。
+- 日本語のみ、2〜4文を基本とします。
+- 100〜220字程度を目安にしますが、情報が少ない場合は短くして構いません。
+- 同じブランド名、型番、商品名、特徴を言い換えて何度も繰り返さないでください。
 - 文字数を埋めるための水増しは禁止です。
-- 「ブランド名は」「商品名は」「モデル番号は」「カラーは」「商品情報です」「確認済み」「ご案内します」「ご確認いただけます」「お探しの方に」は使わないでください。
-- ブランド名、型番、商品名、カラーなどは、必要な場合だけ自然な文章の中で1回まで使用してください。
-- 推測、状態、ランク、付属品、価格、相場、買取、質預かり、鑑定、真贋、購入を煽る表現は入れないでください。
-- 見出し、箇条書き、URL、出典名は入れないでください。
-- 説明文だけを出力してください。
+- PROVIDED_FACTS と WEB_VERIFIED_CONTEXT にある情報だけを商品の事実として使用してください。
+- WEB_VERIFIED_CONTEXT にない仕様、素材、ライン、年代、人気、希少性、資産価値、耐久性、収納力、サイズ感を勝手に補わないでください。
+- 「ブランド名は」「商品名は」「モデル番号は」「商品情報です」「確認済み」「ご案内します」「ご確認いただけます」「お探しの方に」は使わないでください。
+- 状態、ランク、傷、汚れ、付属品、保証、価格、相場、買取、質預かり、鑑定、真贋、店舗案内は書かないでください。
 
-[CONFIRMED FACTS]
-${JSON.stringify(facts, null, 2)}
+[カラーに関する絶対ルール]
+- カラー情報はAILISから商品説明生成へ渡されていません。
+- 商品の色、カラー名、配色、色調は一切説明に入れないでください。
+- WEB_VERIFIED_CONTEXT 内の文章に色の記載が含まれていても、その部分は無視してください。
+- WEB検索からカラーを推測・補完してはいけません。
+- ただし「K18YG」「イエローゴールド」などが PROVIDED_FACTS の品位・素材情報として明示されている場合は、素材名としてのみ使用できます。
+
+[おすすめ表現のルール]
+- 確認できた形状、素材、構造、仕様、デザインから自然に導ける用途・おすすめ対象は書いて構いません。
+- 例：コンパクトな形状が確認できる場合、「荷物を絞って持ち歩きたい方におすすめ」と表現できます。
+- 例：ショルダーストラップ仕様が確認できる場合、「両手を空けて使いたい場面にも取り入れやすい」と表現できます。
+- 根拠になる特徴が確認できない場合は、無理に「おすすめ」を作らず商品の魅力だけを簡潔に説明してください。
+- 「絶対に買うべき」「一生使える」「誰にでも似合う」「資産価値が高い」など、根拠のない強い販売表現は禁止です。
+
+[文章構成]
+1. 商品のブランド・モデルと、確認できた代表的な特徴を自然に紹介する。
+2. 素材・ライン・形状・構造・デザインなど、確認できた魅力を説明する。
+3. その特徴から自然に導ける使い方や、おすすめしたい人を添える。
+
+[PROVIDED_FACTS]
+${JSON.stringify(context.providedFacts || {}, null, 2)}
+
+[WEB_VERIFIED_CONTEXT]
+${JSON.stringify(context.webVerifiedContext || {}, null, 2)}
 
 [OUTPUT]
 `.trim();
@@ -159,52 +151,59 @@ function runBaseHandler(body) {
   });
 }
 
-async function createImprovedLegacyProductSummary(message) {
+async function createSalesRecommendation(message) {
   const facts = parseLegacyProductSummaryFacts(message);
   if (!facts) return null;
 
-  const webResult = await runBaseHandler({
-    mode: "productOpenAiWebAutofill",
-    facts
-  });
+  let webVerifiedContext = {};
 
-  if (webResult.statusCode < 400 && webResult.payload) {
-    const productDescription = cleanReply(webResult.payload.productDescription || "");
-
-    const confirmedFacts = {
-      ...facts,
-      material: String(webResult.payload.material || "").trim(),
-      lineName: String(webResult.payload.lineName || "").trim(),
-      itemName: String(webResult.payload.itemName || "").trim()
-    };
-
-    Object.keys(confirmedFacts).forEach((key) => {
-      if (!String(confirmedFacts[key] || "").trim()) delete confirmedFacts[key];
+  try {
+    const webResult = await runBaseHandler({
+      mode: "productOpenAiWebAutofill",
+      facts
     });
 
-    if (productDescription && !needsNaturalRewrite(productDescription, facts)) {
-      return productDescription;
-    }
+    if (webResult.statusCode < 400 && webResult.payload) {
+      const payload = webResult.payload;
+      const sources = Array.isArray(payload.sources) ? payload.sources : [];
+      const confirmedFacts = payload.confirmedFacts && typeof payload.confirmedFacts === "object"
+        ? payload.confirmedFacts
+        : {};
 
-    const rewriteResult = await runBaseHandler({
-      message: buildNaturalRewritePrompt(confirmedFacts),
-      system: "確認済み情報だけを使い、重複のない自然な日本語の商品説明だけを返してください。"
-    });
+      const modelMatched = facts.modelNumber
+        ? confirmedFacts.modelMatched === true
+        : sources.length > 0;
 
-    if (rewriteResult.statusCode < 400) {
-      const rewritten = cleanReply(rewriteResult.payload?.reply || "");
-      if (rewritten) return rewritten;
+      if (sources.length > 0 && modelMatched) {
+        webVerifiedContext = {
+          productSummary: cleanReply(payload.productDescription || ""),
+          material: String(payload.material || "").trim(),
+          lineName: String(payload.lineName || "").trim(),
+          itemName: String(payload.itemName || "").trim()
+        };
+
+        Object.keys(webVerifiedContext).forEach((key) => {
+          if (!String(webVerifiedContext[key] || "").trim()) {
+            delete webVerifiedContext[key];
+          }
+        });
+      }
     }
+  } catch (e) {
+    webVerifiedContext = {};
   }
 
-  const fallbackResult = await runBaseHandler({
-    message: buildNaturalRewritePrompt(facts),
-    system: "入力済みの事実だけを使い、重複のない自然な日本語の商品説明だけを返してください。"
+  const rewriteResult = await runBaseHandler({
+    message: buildSalesRecommendationPrompt({
+      providedFacts: facts,
+      webVerifiedContext
+    }),
+    system: "確認できた商品情報だけを事実として使い、カラーには一切触れず、商品の魅力とおすすめ対象が自然に伝わるEC向け商品説明だけを返してください。"
   });
 
-  if (fallbackResult.statusCode < 400) {
-    const fallbackReply = cleanReply(fallbackResult.payload?.reply || "");
-    if (fallbackReply) return fallbackReply;
+  if (rewriteResult.statusCode < 400) {
+    const reply = cleanReply(rewriteResult.payload?.reply || "");
+    if (reply) return reply;
   }
 
   return null;
@@ -219,7 +218,8 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const improvedReply = await createImprovedLegacyProductSummary(message);
+    const improvedReply = await createSalesRecommendation(message);
+
     if (improvedReply) {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -232,8 +232,11 @@ module.exports = async (req, res) => {
 
   req.body = {
     ...(req.body || {}),
-    message: buildNaturalRewritePrompt(legacyFacts),
-    system: "入力済みの事実だけを使い、重複のない自然な日本語の商品説明だけを返してください。"
+    message: buildSalesRecommendationPrompt({
+      providedFacts: legacyFacts,
+      webVerifiedContext: {}
+    }),
+    system: "入力済みの商品情報だけを使い、カラーには一切触れず、商品の魅力が自然に伝わる短いEC向け商品説明だけを返してください。"
   };
 
   return baseHandler(req, res);
