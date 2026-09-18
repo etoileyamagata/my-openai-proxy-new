@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/ebay-market.test.js && node --test tests/ebay-trading.test.js tests/ebay-netlify.test.js",
+    "test": "node tests/ebay-market.test.js && node --test tests/ebay-trading.test.js tests/ebay-netlify.test.js tests/ebay-account-deletion.test.js",
     "test:browser": "node tests/ebay-browser.cjs"
   },
   "keywords": [],

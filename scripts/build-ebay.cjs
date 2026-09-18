@@ -4,6 +4,8 @@ const path=require('node:path');
 // Fail the build if runtime dependencies are missing, instead of publishing
 // a page whose API only fails when the first user opens it.
 require('../lib/ebay/core');
+require('../lib/ebay/account-deletion');
+require('../lib/ebay/account-deletion-store');
 require('pg');
 const root=path.resolve(__dirname,'..');
 const output=path.join(root,'dist-ebay','ebay');

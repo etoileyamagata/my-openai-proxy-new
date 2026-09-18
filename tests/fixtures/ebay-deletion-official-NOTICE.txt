@@ -1,0 +1,5 @@
+Official eBay test vector (VALID object only).
+Source: https://github.com/eBay/event-notification-nodejs-sdk/blob/main/test/test.json
+Source blob SHA: 092dabc78180a410fdaf90f8afcc14d3cd73dd97
+Copyright 2021 eBay Inc. Licensed under Apache License 2.0.
+The data is public test data, not user credentials.

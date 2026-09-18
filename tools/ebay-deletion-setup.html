@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>AILIS｜eBay削除通知の設定値作成</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#202c40;font:16px/1.75 system-ui,sans-serif}main{max-width:850px;margin:36px auto;padding:30px;background:#fff;border:1px solid #dce2ed;border-radius:16px}h1{font-size:25px;margin:0 0 16px}h2{font-size:18px;margin:22px 0 8px}.note{padding:14px 18px;background:#fff5dc;border-left:4px solid #ce9900}label{display:block;font-weight:600;margin:12px 0 5px}input,textarea{width:100%;font:15px/1.6 ui-monospace,monospace;padding:11px;border:1px solid #aab7ca;border-radius:7px}input:focus,textarea:focus{outline:3px solid #b9d5fc}button{font:inherit;padding:9px 16px;border:1px solid #b2c2dc;border-radius:7px;background:#eef4fd;cursor:pointer;margin:10px 6px 4px 0}button.primary{color:#fff;background:#244d85;border-color:#244d85}button:disabled{opacity:.45;cursor:default}.small{font-size:14px;color:#53647a}.status{padding:12px 0;font-weight:600}code{word-break:break-all}footer{border-top:1px solid #dce2ed;padding-top:15px;margin-top:20px}textarea{min-height:130px}#fallback[hidden]{display:none}@media(max-width:650px){main{margin:12px;padding:20px}h1{font-size:21px}}
+</style>
+</head>
+<body>
+<main>
+<p class="small">AILIS / 管理者の初期設定用</p>
+<h1>eBay削除通知の設定値を作成</h1>
+<p>このファイルはPC内で開いて使用します。入力内容や生成した値を外部へ送信せず、ブラウザーにも保存しません。</p>
+<div class="note"><strong>先に、通知受信プログラムを既存のNetlifyへ反映します。</strong><br>この画面だけではサーバー設定やeBayへの登録は完了しません。生成した値はチャットやスクリーンショットに載せないでください。</div>
+<h2>1．通知先URL</h2>
+<label for="endpoint">EBAY_DELETION_ENDPOINT</label>
+<input id="endpoint" type="url" autocomplete="off" spellcheck="false" value="https://ailis-ebay.netlify.app/api/ebay-account-deletion">
+<p class="small">既存資料の設置先を候補として表示しています。実際のNetlifyへの反映・到達確認後に確定します。eBayとNetlifyには同じURLを登録してください。末尾のスラッシュは付けません。</p>
+<h2>2．確認文字列</h2>
+<p>「確認文字列を生成」を押すと64文字のランダム値を作成します。Client SecretやOAuthトークンを入力する欄ではありません。</p>
+<button id="generate" class="primary" type="button">確認文字列を生成</button>
+<label for="token">EBAY_DELETION_VERIFICATION_TOKEN</label>
+<input id="token" type="password" autocomplete="off" spellcheck="false" readonly aria-label="生成した確認文字列">
+<button id="copy-token" type="button" disabled>確認文字列をコピー</button>
+<button id="reveal" type="button" disabled>文字列を表示</button>
+<h2>3．Netlifyの環境変数へ登録</h2>
+<p>次のボタンで上の2項目を <code>変数名=値</code> の形式でコピーします。NetlifyのProduction環境だけに登録し、公開HTMLやGitHubへ貼り付けないでください。</p>
+<button id="copy-env" class="primary" type="button" disabled>環境変数2行をコピー</button>
+<p class="small">署名確認には別途、ProductionのApp IDとClient Secretもサーバーの環境変数に登録します。この画面では、それらの値を受け取りません。</p>
+<div id="status" class="status" role="status" aria-live="polite"></div>
+<textarea id="fallback" readonly hidden aria-label="手動コピー用の設定値"></textarea>
+<footer class="small">eBayのAlerts &amp; Notificationsへ登録するのは、通知先URLと同じ確認文字列です。両方の設定が終わるまで、この画面を閉じないでください。再読み込みすると生成した値は失われます。</footer>
+</main>
+<script>
+(function () {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const status = message => { byId('status').textContent = message; };
+  function endpoint() {
+    const value = byId('endpoint').value;
+    let url;
+    try { url = new URL(value); } catch (_) { throw new Error('通知先URLの形式を確認してください。'); }
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
+      url.pathname !== '/api/ebay-account-deletion' || url.href !== value ||
+      ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+      throw new Error('HTTPSの通知先URLを指定してください。末尾のスラッシュや追加パラメーターは使用しません。');
+    }
+    return value;
+  }
+  async function copy(value) {
+    byId('fallback').hidden = true;
+    byId('fallback').value = '';
+    try {
+      await navigator.clipboard.writeText(value);
+      status('コピーしました。対応する設定欄へ貼り付けてください。');
+    } catch (_) {
+      const field = byId('fallback'); field.value = value; field.hidden = false; field.focus(); field.select();
+      status('自動コピーが許可されませんでした。下の選択済み文字列をCtrl+Cでコピーしてください。');
+    }
+  }
+  byId('generate').addEventListener('click', () => {
+    try {
+      endpoint();
+      if (byId('token').value) { status('すでに生成済みです。この同じ値をNetlifyとeBayに登録してください。'); return; }
+      const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
+      byId('token').value = Array.from(bytes, n => n.toString(16).padStart(2, '0')).join('');
+      for (const id of ['copy-token', 'copy-env', 'reveal']) byId(id).disabled = false;
+      status('確認文字列を生成しました。まだサーバーやeBayには登録されていません。');
+    } catch (error) { status(error.message); }
+  });
+  byId('copy-token').addEventListener('click', () => copy(byId('token').value));
+  byId('copy-env').addEventListener('click', () => {
+    try { copy('EBAY_DELETION_ENDPOINT=' + endpoint() + '\nEBAY_DELETION_VERIFICATION_TOKEN=' + byId('token').value); }
+    catch (error) { status(error.message); }
+  });
+  byId('reveal').addEventListener('click', () => {
+    const visible = byId('token').type === 'password'; byId('token').type = visible ? 'text' : 'password';
+    byId('reveal').textContent = visible ? '文字列を隠す' : '文字列を表示';
+  });
+})();
+</script>
+</body>
+</html>
