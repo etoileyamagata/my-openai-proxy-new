@@ -84,7 +84,9 @@
     renderDraft();
   }
   function messagesHtml(result) {
-    return (result?.messages || []).map(m => `<div class="notice ${m.severity === 'Error' ? 'error' : 'warning'}">${escape(m.code)} · ${escape(m.message)}</div>`).join('');
+    const messages = (result?.messages || []).map(m => `<div class="notice ${m.severity === 'Error' ? 'error' : 'warning'}">${escape(m.code)} · ${escape(m.message)}</div>`).join('');
+    const details = (result?.details || []).map(message => `<div class="notice ${result.ack === 'Failure' || result.ack === 'PartialFailure' ? 'error' : 'warning'}"><strong>eBayからの詳しい説明</strong><br>${escape(message)}</div>`).join('');
+    return messages + details;
   }
   function policyHtml(kind, policy) {
     const p = policy.details || {};

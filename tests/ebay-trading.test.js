@@ -8,6 +8,54 @@ const {Auth,seal,unseal,checkRequest}=require('../lib/ebay/security');
 const {createHandler}=require('../api/ebay-trading');
 const {fixture,env,password,product}=require('./ebay-fixture');
 const confirmed=d=>({confirmed:true,verification_id:d.verification.id});
+test('Trading response details are retained safely without changing the result',async t=>{
+  const response=(message,ack='Failure')=>`<VerifyAddFixedPriceItemResponse><Ack>${ack}</Ack><Errors><ErrorCode>240</ErrorCode><SeverityCode>Error</SeverityCode><ErrorClassification>RequestError</ErrorClassification><LongMessage>Listing cannot be created.</LongMessage></Errors>${message}<Fees><Fee><Name>ListingFee</Name><Fee currencyID="USD">0.00</Fee></Fee></Fees></VerifyAddFixedPriceItemResponse>`;
+  await t.test('HTML, escaped HTML, CDATA, entities and duplicates retain readable instructions',()=>{
+    const html='<div>Verify your <b>phone number</b>.</div><p>Review &amp; update your account.</p>';
+    for(const message of [html,html.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),'<![CDATA['+html+']]>']) {
+      const {result}=c.parse(response(`<Message>${message}</Message><Message>${message}</Message>`),'VerifyAddFixedPriceItem');
+      assert.deepEqual(result.details,['Verify your phone number . Review & update your account.']);
+      assert.equal(result.ack,'Failure');
+      assert.deepEqual(result.messages,[{code:'240',severity:'Error',classification:'RequestError',message:'Listing cannot be created.'}]);
+      assert.deepEqual(result.fees,[{name:'ListingFee',value:'0.00',currency:'USD'}]);
+    }
+  });
+  await t.test('messages are optional, bounded, and displayed for a successful acknowledgement too',()=>{
+    assert.deepEqual(c.parse(response(''),'VerifyAddFixedPriceItem').result.details,[]);
+    assert.deepEqual(c.parse(response('<Message/>'),'VerifyAddFixedPriceItem').result.details,[]);
+    assert.deepEqual(c.parse(response('<Message>Account review required.</Message>','Success'),'VerifyAddFixedPriceItem').result.details,['Account review required.']);
+    assert.equal(c.parse(response('<Message>'+ 'x'.repeat(14000)+'</Message>'),'VerifyAddFixedPriceItem').result.details[0].length,12000);
+    const messages=Array.from({length:12},(_,i)=>`<Message>Notice ${i}</Message>`).join('');
+    assert.equal(c.parse(response(messages),'VerifyAddFixedPriceItem').result.details.length,10);
+  });
+  await t.test('untrusted markup and attributes are never emitted as executable page content',()=>{
+    const fs=require('node:fs'),vm=require('node:vm');
+    const app=fs.readFileSync(require('node:path').join(__dirname,'../ebay/app.js'),'utf8');
+    const escape=app.match(/  const escape =[^\n]+/)[0];
+    const render=app.slice(app.indexOf('  function messagesHtml('),app.indexOf('  function policyHtml('));
+    const result=c.parse(response('<Message><![CDATA[<script>alert(1)</script><style>body{display:none}</style><a href="javascript:alert(2)">Verify account</a><img src=x onerror=alert(3)> &#x110000;]]></Message>'),'VerifyAddFixedPriceItem').result;
+    assert.deepEqual(result.details,['Verify account']);
+    const html=vm.runInNewContext(escape+'\n'+render+'\nmessagesHtml(result)',{result:{...result,details:[...result.details,'<img src=x onerror=alert(4)>']}});
+    assert.match(html,/eBayからの詳しい説明/);
+    assert.match(html,/Verify account/);
+    assert.match(html,/&lt;img src=x onerror=alert\(4\)&gt;/);
+    assert.doesNotMatch(html,/<script|<style|<a |<img |javascript:/);
+  });
+  await t.test('a failed verification keeps details in shared storage and cannot publish',async()=>{
+    const f=await fixture();try {
+      const request=f.remote.request.bind(f.remote);
+      const service=new Service(f.store,env,async(url,opts)=>opts?.headers?.['X-EBAY-API-CALL-NAME']==='VerifyAddFixedPriceItem'
+        ?{status:200,text:response('<Message><div>Review your seller account.</div></Message>')}:request(url,opts));
+      let d=await f.draft('response-details','production');d.images=[{url:'https://example.com/a.jpg'}];d=await f.store.saveDraft(d,d.revision);
+      d=await service.verify(d);
+      assert.equal(d.state,'draft');assert.equal(d.verification,null);
+      assert.deepEqual((await f.store.draft(d.id)).last_result.details,['Review your seller account.']);
+      await assert.rejects(()=>service.publish(d,{confirmed:true,verification_id:'invalid'}));
+      assert.equal(f.remote.adds().length,0);
+    } finally {await f.close();}
+  });
+});
+
 test('Store-specific item locations',async t=>{
   const f=await fixture();t.after(f.close);
   await t.test('three stores keep their own XML and verification snapshot under one seller',async()=>{
