@@ -12,6 +12,6 @@ const output=path.join(root,'dist-ebay','ebay');
 fs.mkdirSync(output,{recursive:true});
 // Only these public assets are deployed; never publish the repository root,
 // server modules, environment files, local helper, SQL, or existing AI APIs.
-for(const name of ['index.html','app.js','style.css']) {
+for(const name of ['index.html','app.js','style.css','privacy.html']) {
   fs.copyFileSync(path.join(root,'ebay',name),path.join(output,name));
 }
