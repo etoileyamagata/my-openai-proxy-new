@@ -345,15 +345,15 @@
     if (!imported && sessionStorage.getItem(pendingKey)) imported = JSON.parse(sessionStorage.getItem(pendingKey));
     if (!(await session())) { message(''); return; }
     if (imported) {
-      await adopt(await api('create', {environment:'sandbox', product:imported.product, store:imported.store || ''}));
+      await adopt(await api('create', {environment:'production', product:imported.product, store:imported.store || ''}));
       imported = null;
       sessionStorage.removeItem(pendingKey);
-      message('AILISの商品情報を引き継ぎました。Sandboxで画像と接続設定を確認してください。', 'success');
+      message('AILISの商品情報を引き継ぎ、本番用の出品準備を作りました。まだ出品されていません。画像を登録し、事前検査へ進んでください。', 'success');
     } else {
       const params = new URLSearchParams(location.search);
       const id = params.get('draft') || sessionStorage.getItem(draftKey);
       if (id) await adopt(await api('draft', {draft_id:id}));
-      else { await loadSettings('sandbox'); message(''); }
+      else { await loadSettings('production'); message(''); }
       if (params.get('connection_error')) message('eBayとの接続が完了しませんでした。接続設定からもう一度接続してください。', 'error');
       if (['sandbox','production'].includes(params.get('connected'))) {
         $('settings-environment').value = params.get('connected');

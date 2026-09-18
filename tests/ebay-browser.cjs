@@ -66,6 +66,12 @@ async function main() {
     await page.reload();await page.locator('#login').waitFor({state:'visible'});await login(page);
     assert.match(await page.locator('#product-summary').innerText(),new RegExp(generated.sku));
     assert.equal(await page.locator('#login-password').inputValue(),'');assert.equal(await page.evaluate(()=>window.opener),null);
+    assert.match(await page.locator('#environment-badge').innerText(),/Production/);
+    assert.equal(await page.locator('#file-area').isVisible(),true);
+    assert.equal(await page.locator('#publish').isEnabled(),false);
+    // The remaining legacy two-PC scenario explicitly uses the offline Sandbox fixture.
+    await page.locator('#clone-draft').click();await idle(page);
+    assert.match(await page.locator('#environment-badge').innerText(),/Sandbox/);
     await page.locator('#settings-toggle').click();await page.locator('#connect-ebay').click();
     await page.waitForURL(/connected=sandbox|draft=/);await page.locator('#message').filter({hasText:'eBayに接続しました'}).waitFor();await idle(page);
     assert.match(await page.locator('#product-summary').innerText(),new RegExp(generated.sku));
