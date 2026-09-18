@@ -8,6 +8,83 @@ const {Auth,seal,unseal,checkRequest}=require('../lib/ebay/security');
 const {createHandler}=require('../api/ebay-trading');
 const {fixture,env,password,product}=require('./ebay-fixture');
 const confirmed=d=>({confirmed:true,verification_id:d.verification.id});
+test('Store-specific item locations',async t=>{
+  const f=await fixture();t.after(f.close);
+  await t.test('three stores keep their own XML and verification snapshot under one seller',async()=>{
+    const settings=await f.store.settings('production');
+    await f.service.saveSettings('production',{production_enabled:true},settings.revision);
+    const expected={minami:['Yamagata, Yamagata, Japan','990-2444'],kita:['Yamagata, Yamagata, Japan','990-0810'],izumi:['Izumi-ku, Sendai, Miyagi, Japan','981-3117']};
+    const drafts=await Promise.all(Object.keys(expected).map(async store=>{
+      let d=await f.store.create('production',c.product(product('location-'+store)),store);
+      d.images=[{url:'https://example.com/a.jpg'}];
+      d=await f.store.saveDraft(d,d.revision);
+      return f.service.verify(d);
+    }));
+    assert.equal(f.remote.adds().length,0);
+    const verified=f.remote.calls.filter(call=>call.headers?.['X-EBAY-API-CALL-NAME']==='VerifyAddFixedPriceItem');
+    for(const d of drafts) {
+      const [location,postal]=expected[d.store];
+      assert.equal(d.verification.settings.store,d.store);
+      assert.equal(d.verification.settings.location,location);
+      assert.equal(d.verification.settings.postal_code,postal);
+      assert.equal(d.verification.seller_id,'test-seller');
+      const xml=verified.find(call=>call.body.includes('<SKU>'+d.product.sku+'</SKU>')).body;
+      assert(xml.includes('<Location>'+location+'</Location>'));
+      assert(xml.includes('<PostalCode>'+postal+'</PostalCode>'));
+      assert.deepEqual(d.product,JSON.parse(JSON.stringify(c.product(product('location-'+d.store)))));
+    }
+    await Promise.all(drafts.map(d=>f.service.publish(d,confirmed(d))));
+    assert.equal(f.remote.adds().length,3);
+    for(const call of f.remote.adds()) {
+      const sku=call.body.match(/<SKU>([^<]+)<\/SKU>/)[1];
+      const checked=verified.find(v=>v.body.includes('<SKU>'+sku+'</SKU>'));
+      assert.equal(call.body,checked.body.replaceAll('VerifyAddFixedPriceItemRequest','AddFixedPriceItemRequest'));
+    }
+  });
+  await t.test('missing or unknown stores stop before any eBay request',async()=>{
+    for(const store of ['', 'unknown', '__proto__', 'constructor']) {
+      let d=await f.store.create('production',c.product(product('unknown-'+store)),store);
+      d.images=[{url:'https://example.com/a.jpg'}];d=await f.store.saveDraft(d,d.revision);
+      const before=f.remote.calls.length;
+      await assert.rejects(()=>f.service.verify(d),e=>e.code==='store_unknown');
+      assert.equal(f.remote.calls.length,before);
+    }
+  });
+  await t.test('no fallback to another store or legacy shared location',async()=>{
+    const d=await f.draft('missing-location','production'),s=await f.store.settings('production');
+    d.images=[{url:'https://example.com/a.jpg'}];
+    delete s.store_locations.minami;
+    s.location='Legacy headquarters, Japan';s.postal_code='100-0001';
+    assert.throws(()=>c.listingXml('VerifyAddFixedPriceItem',d,s),e=>e.code==='store_location');
+  });
+  await t.test('location edits persist separately, reject stale PCs, and require new verification',async()=>{
+    const d=await f.ready('location-edit','production'),s=await f.store.settings('production');
+    const changed={location:'Yamagata City, Yamagata, Japan',postal_code:'990-2444'};
+    const saved=await f.service.saveSettings('production',{store_locations:{minami:changed}},s.revision);
+    assert.deepEqual(saved.store_locations.minami,changed);
+    assert.deepEqual(saved.store_locations.kita,s.store_locations.kita);
+    assert.deepEqual(saved.store_locations.izumi,s.store_locations.izumi);
+    assert.equal(saved.connected,true);
+    await assert.rejects(()=>f.service.saveSettings('production',{store_locations:{kita:changed}},s.revision),/別のPC/);
+    const before=f.remote.adds().length;
+    await assert.rejects(()=>f.service.publish(d,confirmed(d)),/再検査/);
+    assert.equal(f.remote.adds().length,before);
+    assert.equal((await f.service.verify(await f.store.draft(d.id))).verification.settings.location,changed.location);
+  });
+  await t.test('invalid location updates and obsolete shared fields do not alter saved settings',async()=>{
+    const before=await f.store.settings('production');
+    for(const update of [
+      {location:'Old shared location',postal_code:'100-0001'},
+      {store_locations:{minami:{location:'Yamagata, Japan',postal_code:'123'}}},
+      {store_locations:{minami:{location:'山形市',postal_code:'990-2444'}}},
+      {store_locations:{minami:{location:'',postal_code:'990-2444'}}},
+      {store_locations:{unknown:{location:'Yamagata, Japan',postal_code:'990-2444'}}},
+      {store_locations:[]}
+    ]) await assert.rejects(()=>f.service.saveSettings('production',update,before.revision));
+    assert.deepEqual(await f.store.settings('production'),before);
+  });
+});
+
 test('Shared Trading API',async t=>{
   const f=await fixture();t.after(f.close);
   await t.test('XML retains approved fields and does not guess omitted review priorities',async()=>{
@@ -82,7 +159,7 @@ test('Shared Trading API',async t=>{
   });
   await t.test('shared policy changes invalidate existing verification',async()=>{
     const d=await f.ready('changed-settings'),s=await f.store.settings('sandbox');
-    await f.service.saveSettings('sandbox',{location:'Tokyo, Japan'},s.revision);
+    await f.service.saveSettings('sandbox',{shipping_policy_id:'456'},s.revision);
     await assert.rejects(()=>f.service.publish(d,confirmed(d)),/再検査/);
   });
   await t.test('production enablement and sandbox images are kept separate',async()=>{
@@ -116,7 +193,7 @@ test('Shared Trading API',async t=>{
     let s=await f.store.settings('sandbox');s.credentials=seal({refresh_token:'mock-refresh',expires_at:0},'sandbox',env);s=await f.store.saveSettings('sandbox',s,s.revision);
     assert.equal(await f.service.token('sandbox',s),'mock-access');
     assert.equal((await f.store.settings('sandbox')).revision,s.revision);
-    const stale={...s};await f.service.saveSettings('sandbox',{location:'Kyoto, Japan'},s.revision);
+    const stale={...s};await f.service.saveSettings('sandbox',{return_policy_id:'567'},s.revision);
     await assert.rejects(()=>f.service.token('sandbox',stale),/別のPC/);
   });
   await t.test('saving settings cannot overwrite a concurrent refreshed token',async()=>{
@@ -135,7 +212,7 @@ test('Shared Trading API',async t=>{
   });
   await t.test('OAuth state cannot replace a connection changed on another PC',async()=>{
     const url=new URL(await f.service.oauthStart('sandbox','stale-session'));
-    const s=await f.store.settings('sandbox');await f.service.saveSettings('sandbox',{location:'Nara, Japan'},s.revision);
+    const s=await f.store.settings('sandbox');await f.service.saveSettings('sandbox',{payment_policy_id:'678'},s.revision);
     await assert.rejects(()=>f.service.oauthCallback({state:url.searchParams.get('state'),code:'code'},'stale-session'),/別のPC/);
   });
   await t.test('file/null origins cannot invoke API; login sessions, CSRF, logout are enforced',async()=>{

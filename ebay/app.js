@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const names = { draft:'準備中', verified:'検査済み', sending:'結果確認が必要', unknown:'結果確認が必要', failed:'出品エラー', published:'出品済み' };
-  const settingFields = ['location', 'postal_code', 'shipping_policy_id', 'return_policy_id', 'payment_policy_id'];
+  const settingFields = ['shipping_policy_id', 'return_policy_id', 'payment_policy_id'];
   const settingsByEnv = {};
   let csrf = '', draft = null, busy = false, uncertain = false;
   let imported = null;
@@ -60,6 +60,10 @@
     settingsByEnv[settings.environment] = settings;
     if (settings.environment !== currentEnvironment()) return;
     settingFields.forEach(key => { $(key).value = settings[key] || ''; });
+    $('store-locations').innerHTML = settings.stores.map(store => {
+      const address = settings.store_locations[store.key];
+      return `<fieldset><legend>${escape(store.name)}</legend><div class="grid"><label>商品所在地（英語）<input id="store-location-${escape(store.key)}" value="${escape(address.location)}" maxlength="80" placeholder="例：Yamagata, Yamagata, Japan"></label><label>郵便番号<input id="store-postal-${escape(store.key)}" value="${escape(address.postal_code)}" maxlength="10" placeholder="例：990-2444"></label></div></fieldset>`;
+    }).join('');
     $('oauth-help').textContent = settings.oauth_ready ? '接続・再接続後は、本番出品を有効にする設定が解除されます。' : '管理者によるeBay接続の初期設定が必要です。';
     $('production_enabled').checked = settings.production_enabled === true;
     $('production-setting').hidden = settings.environment !== 'production';
@@ -151,8 +155,10 @@
     }
     $('verification').innerHTML = verification;
     const s = v?.settings || settingsByEnv[draft.environment] || {};
+    const address = v?.settings?.store === draft.store ? v.settings : settingsByEnv[draft.environment]?.store_locations?.[draft.store] || {};
+    const storeName = (settingsByEnv[draft.environment]?.stores || []).find(store => store.key === draft.store)?.name || draft.store || '店舗未指定';
     const seller = v?.seller_id || settingsByEnv[draft.environment]?.seller_id || '接続未確認';
-    $('publish-summary').innerHTML = `<dl><dt>出品先</dt><dd><strong>${escape(envLabel(draft.environment))} / ${escape(seller)}</strong></dd><dt>価格 / 数量</dt><dd>${usd(p.pricing.targetUsd)} / 1点</dd><dt>商品所在地</dt><dd>${escape(s.location || '未設定')} / ${escape(s.postal_code || '未設定')}（JP）</dd><dt>ポリシーID</dt><dd>配送 ${escape(s.shipping_policy_id || '未設定')} / 返品 ${escape(s.return_policy_id || '未設定')} / 支払 ${escape(s.payment_policy_id || '未設定')}</dd></dl><p>${isProduction ? '「eBayに出品する」を押すと、商品が公開され購入可能になります。' : 'Sandbox内のテスト出品です。実際のeBayには公開されません。'}</p>${isProduction && !settingsByEnv.production?.production_enabled ? '<p class="notice warning">接続設定で本番出品を有効にしてから、再検査してください。</p>' : ''}`;
+    $('publish-summary').innerHTML = `<dl><dt>出品先</dt><dd><strong>${escape(envLabel(draft.environment))} / ${escape(seller)}</strong></dd><dt>価格 / 数量</dt><dd>${usd(p.pricing.targetUsd)} / 1点</dd><dt>在庫店舗</dt><dd>${escape(storeName)}</dd><dt>商品所在地</dt><dd>${escape(address.location || '未設定')} / ${escape(address.postal_code || '未設定')}（JP）</dd><dt>ポリシーID</dt><dd>配送 ${escape(s.shipping_policy_id || '未設定')} / 返品 ${escape(s.return_policy_id || '未設定')} / 支払 ${escape(s.payment_policy_id || '未設定')}</dd></dl><p>${isProduction ? '「eBayに出品する」を押すと、商品が公開され購入可能になります。' : 'Sandbox内のテスト出品です。実際のeBayには公開されません。'}</p>${isProduction && !settingsByEnv.production?.production_enabled ? '<p class="notice warning">接続設定で本番出品を有効にしてから、再検査してください。</p>' : ''}`;
     $('publish-confirm').checked = false;
     $('confirm-row').hidden = locked();
     $('publish').hidden = locked();
@@ -197,6 +203,9 @@
     event.preventDefault();
     run('接続設定を保存しています。', async () => {
       const settings = Object.fromEntries(settingFields.map(k => [k,$(k).value.trim()]));
+      settings.store_locations = Object.fromEntries(settingsByEnv[currentEnvironment()].stores.map(store => [store.key, {
+        location:$('store-location-' + store.key).value.trim(), postal_code:$('store-postal-' + store.key).value.trim()
+      }]));
       settings.production_enabled = $('production_enabled').checked;
       const result = await api('save_settings', {environment:currentEnvironment(), settings});
       fillSettings(result.settings);

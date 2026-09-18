@@ -58,7 +58,7 @@ async function fixture() {
   async function connect() {const previous=tail;let release;tail=new Promise(r=>release=r);await previous;return {query:(...args)=>pg.query(...args),release};}
   const db={connect,query:async(...args)=>{const cl=await connect();try{return await cl.query(...args);}finally{cl.release();}}};
   const store=new Store(db),remote=new FakeEbay(),service=new Service(store,env,remote.request.bind(remote));
-  for(const e of ['sandbox','production']) await store.saveSettings(e,{location:'Miyagi, Japan',postal_code:'123-4567',shipping_policy_id:'123',return_policy_id:'234',payment_policy_id:'345',seller_id:'test-seller',seller_key:'stable-seller',checked_at:c.now(),production_enabled:false,
+  for(const e of ['sandbox','production']) await store.saveSettings(e,{store_locations:{minami:{location:'Yamagata, Yamagata, Japan',postal_code:'990-2444'},kita:{location:'Yamagata, Yamagata, Japan',postal_code:'990-0810'},izumi:{location:'Izumi-ku, Sendai, Miyagi, Japan',postal_code:'981-3117'}},shipping_policy_id:'123',return_policy_id:'234',payment_policy_id:'345',seller_id:'test-seller',seller_key:'stable-seller',checked_at:c.now(),production_enabled:false,
     credentials:seal({access_token:'mock-'+e,refresh_token:'mock-refresh-'+e,expires_at:c.now()+7200},e,env)},0);
   const draft=async(sku='test-minami',e='sandbox')=>store.create(e,c.product(product(sku)),'minami');
   const ready=async(sku='test-minami',e='sandbox')=>{let d=await draft(sku,e);d.images=[{id:c.id(),url:'https://example.com/a.jpg',name:'Sample',source:'url'}];d=await store.saveDraft(d,d.revision);return service.verify(d);};
