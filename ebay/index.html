@@ -8,12 +8,24 @@
   <script src="/ebay/app.js" defer></script>
 </head>
 <body>
-  <header><a class="brand" href="/ebay/">AILIS <span>eBay出品</span></a><nav id="app-nav" hidden><button id="settings-toggle">接続設定</button><button id="worklist-toggle">作業中の商品</button><button id="logout">ログアウト</button></nav></header>
+  <header><a class="brand" href="/ebay/">AILIS <span>eBay出品</span></a><nav id="app-nav" hidden><span id="operator-name"></span><button id="access-toggle" hidden>スタッフ・ブラウザー管理</button><button id="settings-toggle">接続設定</button><button id="worklist-toggle">作業中の商品</button><button id="logout">ログアウト</button></nav></header>
   <main>
     <div class="heading"><div><div class="eyebrow">TRADING API</div><h1>確認して、eBayへ出品</h1><p>AILISの商品情報に画像を加え、eBayの事前検査後に公開します。</p></div><span id="environment-badge" class="badge production">Production（本番）</span></div>
     <div id="message" role="status" aria-live="polite" hidden></div>
-    <section id="login" class="panel" hidden><h2>担当者ログイン</h2><p>管理者から案内されたログイン名とパスワードを入力してください。</p><form id="login-form"><div class="grid"><label>ログイン名<input id="login-user" autocomplete="username" required></label><label>パスワード<input id="login-password" type="password" autocomplete="current-password" required></label></div><button class="primary" type="submit">ログイン</button></form><p class="muted">共有フォルダのAILISから引き継いだ商品は、ログイン後に表示します。</p></section>
+    <section id="login" class="panel" hidden><h2>担当者ログイン</h2>
+      <p id="browser-login-note">ブラウザーの登録状態を確認しています。</p>
+      <form id="staff-login-form" hidden><label>6桁のスタッフコード<input id="staff-code" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required></label><button class="primary" type="submit">スタッフとしてログイン</button></form>
+      <details id="admin-login"><summary>管理者ログイン・ブラウザーの初回登録</summary><p>これまでのログイン名とパスワードで管理者として入れます。初回はログイン後に「スタッフ・ブラウザー管理」から登録してください。</p><form id="login-form"><div class="grid"><label>管理者ログイン名<input id="login-user" autocomplete="username" required></label><label>管理者パスワード<input id="login-password" type="password" autocomplete="current-password" required></label></div><button class="primary" type="submit">管理者としてログイン</button></form></details>
+      <p class="muted">AILISから引き継いだ商品は、ログイン後に表示します。</p></section>
     <div id="app-content" hidden>
+    <section id="access" class="panel" hidden>
+      <div class="section-title"><h2>スタッフ・ブラウザー管理</h2><button id="access-refresh">再読込</button></div>
+      <p>各店舗で使うブラウザーを管理者が登録すると、スタッフは6桁コードで入れます。登録は90日間、ログインは8時間有効です。スタッフコードは担当者を選ぶための番号です。</p>
+      <form id="browser-register-form"><label>このブラウザーの名前<input id="browser-label" maxlength="80" placeholder="例：山形南店・出品PC 1" required></label><label class="check"><input id="browser-register-confirm" type="checkbox" required>このブラウザーで、有効なスタッフのログインを許可します</label><button class="primary" type="submit">このブラウザーを90日間登録</button></form>
+      <h3>登録済みブラウザー</h3><div id="browser-list"></div>
+      <h3>スタッフ一覧</h3><p class="muted">タイトル末尾の3桁コードを表示しています。無効にすると、そのスタッフのログインも失効します。</p><div id="staff-list"></div>
+      <details><summary>AILISからスタッフ一覧を更新</summary><p>管理者が更新した AILIS/admin/storeProfiles.json を選択してください。新規コードを追加し、ファイルにないスタッフを無効にします。無効なスタッフは自動では再有効化しません。</p><form id="staff-import-form"><label>スタッフ一覧の設定ファイル<input id="staff-roster-file" type="file" accept=".json,application/json" required></label><button type="submit">スタッフ一覧を更新</button></form></details>
+    </section>
     <section id="settings" class="panel" hidden>
       <div class="section-title"><h2>接続設定</h2><label>設定する環境 <select id="settings-environment"><option value="sandbox">Sandbox（テスト）</option><option value="production" selected>Production（本番）</option></select></label></div>
       <p id="account-state">接続未確認</p>

@@ -6,9 +6,15 @@
   const settingsByEnv = {};
   let csrf = '', draft = null, busy = false, uncertain = false;
   let imported = null;
+  let role = '';
   const pendingKey = 'ailis-ebay-pending-product';
   const draftKey = 'ailis-ebay-current-draft';
-  function showLogin() { csrf = ''; $('login').hidden = false; $('app-content').hidden = true; $('app-nav').hidden = true; }
+  function showLogin() { csrf = ''; role = ''; applyRole(); $('login').hidden = false; $('app-content').hidden = true; $('app-nav').hidden = true; }
+  function applyRole() {
+    const admin = role === 'admin';
+    ['settings-toggle','welcome-settings','access-toggle'].forEach(id => { $(id).hidden = !admin; });
+    if (!admin) { $('settings').hidden = true; $('access').hidden = true; }
+  }
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const usd = value => Number(value).toLocaleString('en-US', { style:'currency', currency:'USD' });
   const date = value => new Date(value * 1000).toLocaleString('ja-JP');
@@ -24,7 +30,13 @@
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || '共通サーバーに接続できません。');
     csrf = result.csrf;
+    $('staff-login-form').hidden = !result.browser_registered;
+    $('browser-login-note').textContent = result.browser_registered ? '登録済みブラウザーです。ご自身の6桁スタッフコードを入力してください。' : 'このブラウザーは未登録、または登録期限切れです。最初に管理者がログインして登録してください。';
+    $('admin-login').open = !result.browser_registered;
     if (!result.authenticated) { showLogin(); return false; }
+    role = result.role;
+    $('operator-name').textContent = role === 'admin' ? '管理者' : '担当者 ' + result.staff_id;
+    applyRole();
     $('login').hidden = true; $('app-content').hidden = false; $('app-nav').hidden = false;
     return true;
   }
@@ -35,7 +47,7 @@
       headers:{'Content-Type':'application/json', 'X-AILIS-Request':'trading-v1', 'X-AILIS-CSRF':csrf},
       body:JSON.stringify({action, ...data}) });
     const result = await response.json().catch(() => ({ok:false,error:'共通サーバーから応答を受け取れませんでした。保存状態を再読込してください。'}));
-    if (response.status === 401 && action !== 'login') showLogin();
+    if (response.status === 401 && !['login','staff_login'].includes(action)) showLogin();
     if (!response.ok || !result.ok) {
       const details = (result.details || []).map(d => `${d.code}: ${d.message}`).join('\n');
       throw new Error((result.error || '処理に失敗しました。') + (details ? '\n' + details : ''));
@@ -53,6 +65,7 @@
       busy = false;
       controls.forEach(([el, disabled]) => { el.disabled = disabled; });
       renderDraft();
+      applyRole();
     }
   }
   function currentEnvironment() { return $('settings-environment').value; }
@@ -178,7 +191,61 @@
     $('published-result').innerHTML = published;
     updatePublishButton();
   }
-  function openSettings() { $('settings').hidden = false; $('settings').scrollIntoView({behavior:'smooth', block:'start'}); }
+  function openSettings() { if (role !== 'admin') return; $('settings').hidden = false; $('settings').scrollIntoView({behavior:'smooth', block:'start'}); }
+  async function loadAccess() {
+    const result = await api('access_list');
+    $('browser-list').innerHTML = result.browsers.length ? result.browsers.map(b => {
+      const valid = !b.revoked_at && b.current_credentials && new Date(b.expires_at).getTime() > Date.now();
+      return `<div class="worklist-item"><div><strong>${escape(b.label)}${b.current ? '（このブラウザー）' : ''}</strong><small>${valid ? '登録中・期限 ' + escape(new Date(b.expires_at).toLocaleDateString('ja-JP')) : '登録解除済み／期限切れ'}</small></div>${valid ? `<button data-revoke-browser="${escape(b.id)}">登録を解除</button>` : ''}</div>`;
+    }).join('') : '<p>登録済みのブラウザーはありません。</p>';
+    $('staff-list').innerHTML = result.staff.length ? result.staff.map(s => `<div class="worklist-item"><div><strong>担当者 ${escape(s.staff_id)}</strong><small>${s.active ? '利用可' : '無効'}</small></div><button data-staff-id="${escape(s.staff_id)}" data-staff-active="${!s.active}">${s.active ? '無効にする' : '再有効化する'}</button></div>`).join('') : '<p>スタッフ一覧を登録してください。</p>';
+  }
+  $('staff-login-form').addEventListener('submit', event => {
+    event.preventDefault();
+    run('スタッフとしてログインしています。', async () => {
+      try { await api('staff_login', {code:$('staff-code').value.trim()}); await initialize(); }
+      finally { $('staff-code').value = ''; }
+    });
+  });
+  $('access-toggle').addEventListener('click', () => {
+    $('access').hidden = !$('access').hidden;
+    if (!$('access').hidden) run('利用者とブラウザーを読み込んでいます。', async () => { await loadAccess(); message(''); });
+  });
+  $('access-refresh').addEventListener('click', () => run('登録状態を読み込んでいます。', async () => { await loadAccess(); message(''); }));
+  $('browser-register-form').addEventListener('submit', event => {
+    event.preventDefault();
+    if (!$('browser-register-confirm').checked) return;
+    run('このブラウザーを登録しています。', async () => {
+      await api('browser_register', {label:$('browser-label').value.trim()});
+      $('browser-register-confirm').checked = false;
+      await loadAccess(); await session();
+      message('このブラウザーを登録しました。管理者からログアウトすると、6桁スタッフコードで入れます。', 'success');
+    });
+  });
+  $('browser-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-revoke-browser]');
+    if (!button || busy || !confirm('このブラウザーの登録を解除しますか？ このブラウザーのスタッフは再登録まで利用できなくなります。')) return;
+    run('ブラウザーの登録を解除しています。', async () => { await api('browser_revoke', {browser_id:button.dataset.revokeBrowser}); await loadAccess(); await session(); message('ブラウザーの登録を解除しました。', 'success'); });
+  });
+  $('staff-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-staff-id]');
+    if (!button || busy) return;
+    const active = button.dataset.staffActive === 'true';
+    if (!confirm('担当者 ' + button.dataset.staffId + ' を' + (active ? '再有効化' : '無効化') + 'しますか？')) return;
+    run('スタッフの利用状態を変更しています。', async () => { await api('staff_set_active', {staff_id:button.dataset.staffId,active}); await loadAccess(); message('スタッフの利用状態を変更しました。', 'success'); });
+  });
+  $('staff-import-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const file = $('staff-roster-file').files[0];
+    if (!file) return;
+    run('スタッフ一覧を更新しています。', async () => {
+      if (file.size > 500000) throw new Error('AILIS/admin/storeProfiles.json を選択してください。');
+      const profile = JSON.parse((await file.text()).replace(/^\uFEFF/, ''));
+      await api('staff_import', {staff_codes:profile.staffCodes});
+      $('staff-roster-file').value = ''; await loadAccess();
+      message('スタッフ一覧を更新しました。以前から無効のスタッフは無効のままです。', 'success');
+    });
+  });
   $('login-form').addEventListener('submit', event => {
     event.preventDefault();
     run('ログインしています。', async () => {
@@ -188,7 +255,7 @@
   });
   $('logout').addEventListener('click', () => run('ログアウトしています。', async () => {
     await api('logout'); sessionStorage.removeItem(pendingKey); sessionStorage.removeItem(draftKey); imported = null; draft = null;
-    history.replaceState(null, '', '/ebay/'); showLogin(); message('ログアウトしました。');
+    history.replaceState(null, '', '/ebay/'); await session(); message('ログアウトしました。');
   }));
   $('connect-ebay').addEventListener('click', () => run('eBayの接続画面を開いています。', async () => {
     const result = await api('oauth_start', {environment:currentEnvironment()});
