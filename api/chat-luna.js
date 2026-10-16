@@ -1,6 +1,6 @@
-process.env.OPENAI_MODEL = "gpt-5.6-luna";
-process.env.OPENAI_WEB_MODEL = "gpt-5.6-luna";
-process.env.OPENAI_WEB_FALLBACK_MODEL = "gpt-5.6-luna";
+process.env.OPENAI_MODEL = "gpt-6-luna";
+process.env.OPENAI_WEB_MODEL = "gpt-6-luna";
+process.env.OPENAI_WEB_FALLBACK_MODEL = "gpt-6-luna";
 
 const baseHandler = require("./chat");
 
