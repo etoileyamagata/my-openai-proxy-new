@@ -40,17 +40,40 @@ function cleanPlainText(value) {
     .trim();
 }
 
+const KEYWORD_SAFETY_INSTRUCTIONS = [
+  "仕様・SEOキーワードは、日本語または英語の意味が明確な単語と必要な数字だけにしてください。",
+  "スーパーコピー、コピー品、偽造品、偽物、贋作、模造品、模倣品、レプリカ、フェイク、および counterfeit、fake、replica、imitation、knockoff、bootleg、forgery などの語は禁止です。否定文や真贋に関する説明にも使わないでください。",
+  "日本語・英語以外の言語、絵文字、文字化け、意味不明な文字列は出力しないでください。",
+  "日本語・英語以外の単語を英字に転写して残さないでください。",
+  "許可できるキーワードだけを半角スペースで区切り、語数を埋めるための推測や無関係な語を足さないでください。",
+  "有効なキーワードがない場合、キーワードの値は空文字にしてください。"
+].join("\n");
+
 function cleanKeywords(value) {
-  return String(value || "")
+  const text = String(value || "")
+    .normalize("NFKC")
+    .replace(/\p{Cf}/gu, "")
     .replace(/```[a-zA-Z]*\n?/g, "")
     .replace(/```/g, "")
     .replace(/^\s*(SEOキーワード|検索キーワード|キーワード|仕様|OUTPUT)\s*[:：]\s*/gmi, "")
     .replace(/[、，,。]/g, " ")
-    .replace(/[\u200B\u00A0\u3000]/g, "")
-    .replace(/\r?\n/g, " ")
-    .replace(/[【】\[\]（）()]/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[【】\[\]（）()「」『』]/g, " ")
     .trim();
+
+  const allowedToken = /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9ー々〆ヶ・&+./%°℃:×-]+$/u;
+  const meaningfulToken = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9]/u;
+  const forbiddenJapanese = /スーパーコピー|コピー(?:品|商品|製品|ブランド)|偽|贋|模造|模倣|レプリカ|フェイク|イミテーション/;
+  const forbiddenEnglish = /supercopy|counterfeit|fake|replica|imitation|knockoff|bootleg|forgery/;
+
+  return text
+    .split(/\s+/)
+    .filter((token) => {
+      if (!allowedToken.test(token) || !meaningfulToken.test(token)) return false;
+      const compact = token.replace(/[・&+./%°℃:×-]/g, "").toLowerCase();
+      if (/^(コピー|copy|copies)$/.test(compact)) return false;
+      return !forbiddenJapanese.test(compact) && !forbiddenEnglish.test(compact);
+    })
+    .join(" ");
 }
 
 function parseJsonObject(text) {
@@ -200,15 +223,22 @@ async function postOpenAiResponses(payload) {
 }
 
 async function createChatReply(message, systemContent) {
+  const isKeywordRequest = /^\s*Generate up to \d+ (?:highly )?relevant Japanese SEO keywords\b/im.test(String(message || ""));
+  const baseSystem = systemContent || "You are a helpful assistant.";
+  const effectiveSystem = isKeywordRequest
+    ? `${baseSystem}\n\n${KEYWORD_SAFETY_INSTRUCTIONS}`
+    : baseSystem;
+
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages: [
-      { role: "system", content: systemContent || "You are a helpful assistant." },
+      { role: "system", content: effectiveSystem },
       { role: "user", content: message || "" }
     ]
   });
 
-  return response.choices?.[0]?.message?.content || "";
+  const reply = response.choices?.[0]?.message?.content || "";
+  return isKeywordRequest ? cleanKeywords(reply) : reply;
 }
 
 async function createOpenAiWebSearchReply(prompt) {
@@ -302,6 +332,7 @@ async function createWatchOpenAiAutofill(facts) {
 - 未確認の機能名を商品説明に入れないでください。
 
 [仕様キーワードルール]
+${KEYWORD_SAFETY_INSTRUCTIONS}
 - 日本語中心。
 - 半角スペース区切りの1行。
 - 8〜20語を目安。ただし確認できる語が少ない場合は少なくてよい。
@@ -555,6 +586,7 @@ ${categoryName}
 - ただし確認できない要素は入れないでください。
 
 [仕様キーワードルール]
+${KEYWORD_SAFETY_INSTRUCTIONS}
 - 日本語中心。
 - 半角スペース区切りの1行。
 - 8〜20語を目安。ただし確認できる語が少ない場合は少なくてよい。
